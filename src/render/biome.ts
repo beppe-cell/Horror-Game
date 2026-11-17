@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
+import type { GlowKind } from '../rules/glow';
 import { TILE, WALL_TILES, attachNormalMap, makeLitTexture } from './pixelArt';
 
 /**
@@ -7,6 +8,13 @@ import { TILE, WALL_TILES, attachNormalMap, makeLitTexture } from './pixelArt';
  * tools/extract_sprites.py cut out of the Gemini sheets (numbers refer to
  * art/processed/rooms/<key>-tiles|props-index.png).
  */
+export interface Lamp {
+  color: number;
+  radius: number;
+  intensity: number;
+  kind: GlowKind;
+}
+
 export interface Biome {
   key: string;
   /** Floor tile ids with how often each appears. */
@@ -22,8 +30,10 @@ export interface Biome {
   decor: number[];
   /** Glowing props that are light sources. */
   crystals: number[];
-  /** Other props that give off light, with its colour. */
-  lamps: Record<number, number>;
+  /** Props that give off light: colour, reach, strength and how it varies. */
+  lamps: Record<number, Lamp>;
+  /** Walkable props that glow, preferred for half of the small props. */
+  litDecor: number[];
   /** Fill colour of solid rock behind the walls. */
   rock: string;
   /** Colours for side and bottom doors, drawn seen from above. */
@@ -46,7 +56,15 @@ export const CRASH_SITE: Biome = {
   obstacles: [0, 0, 1, 1, 3, 4, 5, 13, 16, 21, 23],
   decor: [6, 7, 8, 10, 11, 12, 14, 15, 19, 20],
   crystals: [17, 22, 9],
-  lamps: { 11: 0xff5040 },
+  lamps: {
+    17: { color: 0x4dffb0, radius: 110, intensity: 0.9, kind: 'pulse' }, // big crystal
+    22: { color: 0x4dffb0, radius: 110, intensity: 0.9, kind: 'pulse' }, // big crystal
+    9: { color: 0x4dffb0, radius: 60, intensity: 0.7, kind: 'pulse' }, // crystal sprout
+    11: { color: 0xff5040, radius: 75, intensity: 1.1, kind: 'flicker' }, // emergency flare
+    23: { color: 0xff8a3c, radius: 80, intensity: 0.8, kind: 'ember' }, // burnt escape pod
+    10: { color: 0x39d0ff, radius: 45, intensity: 0.7, kind: 'dying' }, // cracked visor
+  },
+  litDecor: [11, 11, 10, 9],
   rock: '#0e1119',
   door: { metal: '#4f5762', metalLight: '#7d8799', dark: '#05070b', stripe: '#ff9a3c', outline: '#0b0d14' },
 };

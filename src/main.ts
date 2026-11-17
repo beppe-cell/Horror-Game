@@ -14,7 +14,7 @@ const game = new Phaser.Game({
   // frames the room itself (see rules/view.ts).
   scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
   pixelArt: true,
-  render: { maxLights: 16 },
+  render: { maxLights: 20 },
   input: { gamepad: true },
   physics: {
     default: 'arcade',
