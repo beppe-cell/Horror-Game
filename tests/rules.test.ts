@@ -7,6 +7,7 @@ import { normalMapFromRgba } from '../src/rules/normalmap';
 import { frameView, pickQuality } from '../src/rules/view';
 import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
 import { waterMask } from '../src/rules/waterMask';
+import { castShadow } from '../src/rules/shadow';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -191,5 +192,26 @@ describe('water mask', () => {
     expect(at(m.width - 2, 20)).toBeCloseTo(0, 2); // far dry side
     expect(at(32, 20)).toBeGreaterThan(0.3); // shoreline between cell 3 and 4
     expect(at(32, 20)).toBeLessThan(0.7);
+  });
+});
+
+describe('cast shadow', () => {
+  it('points away from the strongest light', () => {
+    const s = castShadow(100, 100, [{ x: 60, y: 100, radius: 120, intensity: 1 }])!;
+    expect(s.angle).toBeCloseTo(0); // light on the left, shadow to the right
+    expect(s.alpha).toBeGreaterThan(0);
+  });
+
+  it('is longer and fainter when the light is farther away', () => {
+    const near = castShadow(100, 100, [{ x: 100, y: 70, radius: 120, intensity: 1 }])!;
+    const far = castShadow(100, 100, [{ x: 100, y: 10, radius: 120, intensity: 1 }])!;
+    expect(far.length).toBeGreaterThan(near.length);
+    expect(far.alpha).toBeLessThan(near.alpha);
+    expect(near.angle).toBeCloseTo(Math.PI / 2); // light above, shadow down the screen
+  });
+
+  it('casts nothing out of range or from a light on the character', () => {
+    expect(castShadow(100, 100, [{ x: 400, y: 100, radius: 120, intensity: 1 }])).toBeNull();
+    expect(castShadow(100, 100, [{ x: 101, y: 100, radius: 120, intensity: 1 }])).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
+import { castShadow } from '../rules/shadow';
 import { TILE, WALL_TILES, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
@@ -24,6 +25,8 @@ const FRAME_H = ROOM_H + WALL * 2;
 
 /** Share of the player's velocity added to a new shot. */
 const SHOT_INHERIT = 0.3;
+/** Row of the boot soles in the 48×48 player frames (see tools/clean_sprites.py). */
+const PLAYER_SOLE_ROW = 46;
 /** Shots that carry their own light; extra shots fly unlit. */
 const LIT_SHOTS = 6;
 
@@ -60,6 +63,10 @@ export default class PlayScene extends Phaser.Scene {
   private shotLights: Phaser.GameObjects.Light[] = [];
   private crystalLights: { light: Phaser.GameObjects.Light; base: number; phase: number }[] = [];
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** Dark contact patch right under the boots, so the astronaut stands on the floor. */
+  private contactShadow!: Phaser.GameObjects.Image;
+  /** Longer, fainter shadow cast away from the nearest light. */
+  private castShadowImg!: Phaser.GameObjects.Image;
   /** Objects mirrored in the water (player first, then rocks and crystals). */
   private reflectors: Reflector[] = [];
 
@@ -116,7 +123,11 @@ export default class PlayScene extends Phaser.Scene {
     // overlap the wall above like in a 3/4 view.
     this.player.body!.setSize(14, 8).setOffset(17, 38);
     this.player.play('player-idle-down');
-    this.reflectors.unshift({ obj: this.player, baseRow: 46 });
+    this.reflectors.unshift({ obj: this.player, baseRow: PLAYER_SOLE_ROW });
+    // Both shadows sit between the floor/water and the player, so the boots
+    // overlap the top of the contact patch: no gap, no floating.
+    this.castShadowImg = this.add.image(0, 0, 'px-shadow-cast').setOrigin(0.12, 0.5).setDepth(8);
+    this.contactShadow = this.add.image(0, 0, 'px-shadow').setDepth(9);
     this.playerLight = this.lights.addLight(this.player.x, this.player.y, 150, 0xcfeeff, 1.2);
 
     this.shots = this.physics.add.group({ defaultKey: 'px-shot', maxSize: 40 });
@@ -326,7 +337,34 @@ export default class PlayScene extends Phaser.Scene {
       waterLights.push({ x: c.light.x, y: c.light.y, radius: 110, intensity: c.light.intensity, color: 0x4dffb0 });
     }
     this.water.setLights(waterLights);
+    this.updateShadows(waterLights.slice(1));
     this.water.updateReflections(this.reflectors, (x, y) => this.brightnessAt(waterLights, x, y));
+  }
+
+  /**
+   * Places the contact shadow under the boots and points the cast shadow
+   * away from the strongest light around (not the suit lamp, which is on the
+   * astronaut). In water both are fainter: the surface scatters the light.
+   */
+  private updateShadows(lights: WaterLight[]): void {
+    const feetX = this.player.x;
+    const feetY = this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW;
+    const inWater = this.water.contains(this.room.cells, feetX, feetY, TILE);
+    const dying = this.player.anims.currentAnim?.key === 'player-death';
+    // Centred on the sole row: the boots cover the upper half, the lower half
+    // and the sides stick out, so the feet rest on a dark patch.
+    this.contactShadow.setPosition(Math.round(feetX), Math.round(feetY));
+    this.contactShadow.setVisible(!dying).setAlpha(inWater ? 0.45 : 1);
+
+    const cast = castShadow(feetX, feetY, lights);
+    this.castShadowImg.setVisible(!!cast && !dying);
+    if (cast) {
+      this.castShadowImg
+        .setPosition(Math.round(feetX), Math.round(feetY - 1))
+        .setRotation(cast.angle)
+        .setScale(cast.length, 1)
+        .setAlpha(cast.alpha * (inWater ? 0.4 : 1));
+    }
   }
 
   /** Rough light level at a point, matching the scene lights, for unlit reflections. */
