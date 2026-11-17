@@ -17,13 +17,6 @@ const PAL = {
   rockDark: '#2e3242',
   rock: '#4a4f63',
   rockLight: '#6b7189',
-  suit: '#e8eef7',
-  suitShade: '#aab4c6',
-  visor: '#39d0ff',
-  visorLight: '#b8f1ff',
-  pack: '#7d8799',
-  shot: '#7cf7d4',
-  shotCore: '#ffffff',
   crystal: '#4dffb0',
   crystalDark: '#138a66',
   crystalLight: '#d6ffee',
@@ -36,6 +29,31 @@ function px(ctx: CanvasRenderingContext2D, color: string, x: number, y: number, 
   ctx.fillRect(x, y, w, h);
 }
 
+function normalCanvas(img: ImageData): HTMLCanvasElement {
+  const normal = document.createElement('canvas');
+  normal.width = img.width;
+  normal.height = img.height;
+  const data = new Uint8ClampedArray(normalMapFromRgba(img.data, img.width, img.height));
+  normal.getContext('2d')!.putImageData(new ImageData(data, img.width, img.height), 0, 0);
+  return normal;
+}
+
+/**
+ * Builds a normal map from a loaded texture's own pixels so it responds to
+ * the scene lights. Safe to call more than once.
+ */
+export function attachNormalMap(scene: Phaser.Scene, key: string): void {
+  const tex = scene.textures.get(key);
+  if (!tex || tex.dataSource.length) return;
+  const src = tex.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+  const canvas = document.createElement('canvas');
+  canvas.width = src.width;
+  canvas.height = src.height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(src, 0, 0);
+  tex.setDataSource(normalCanvas(ctx.getImageData(0, 0, src.width, src.height)));
+}
+
 /**
  * Creates a canvas texture, paints it, and attaches a normal map built from
  * its own pixels so it responds to the scene lights.
@@ -45,13 +63,7 @@ export function makeLitTexture(scene: Phaser.Scene, key: string, w: number, h: n
   const tex = scene.textures.createCanvas(key, w, h)!;
   paint(tex.context);
   tex.refresh();
-  const img = tex.context.getImageData(0, 0, w, h);
-  const normal = document.createElement('canvas');
-  normal.width = w;
-  normal.height = h;
-  const nctx = normal.getContext('2d')!;
-  nctx.putImageData(new ImageData(new Uint8ClampedArray(normalMapFromRgba(img.data, w, h)), w, h), 0, 0);
-  tex.setDataSource(normal);
+  tex.setDataSource(normalCanvas(tex.context.getImageData(0, 0, w, h)));
 }
 
 /** One 32×32 floor tile, varied by the seed so the floor does not look tiled. */
@@ -110,23 +122,6 @@ export function makePlaceholderArt(scene: Phaser.Scene): void {
     }
     const rng = new Rng(5);
     for (let i = 0; i < 6; i++) px(ctx, PAL.rockDark, rng.int(8, 24), rng.int(9, 26), 2, 1);
-  });
-
-  makeLitTexture(scene, 'px-player', TILE, TILE, (ctx) => {
-    px(ctx, PAL.outline, 9, 3, 14, 26); // silhouette, painted over below
-    px(ctx, PAL.pack, 8, 11, 2, 9); // backpack sides
-    px(ctx, PAL.pack, 22, 11, 2, 9);
-    px(ctx, PAL.suit, 10, 4, 12, 11); // helmet
-    px(ctx, PAL.suitShade, 10, 12, 12, 3);
-    px(ctx, PAL.visor, 12, 7, 8, 5);
-    px(ctx, PAL.visorLight, 13, 8, 3, 2);
-    px(ctx, PAL.suit, 10, 16, 12, 8); // body
-    px(ctx, PAL.suitShade, 10, 22, 12, 2);
-    px(ctx, PAL.visor, 14, 18, 4, 2); // chest light
-    px(ctx, PAL.suit, 10, 24, 5, 4); // legs
-    px(ctx, PAL.suit, 17, 24, 5, 4);
-    px(ctx, PAL.suitShade, 10, 27, 5, 1);
-    px(ctx, PAL.suitShade, 17, 27, 5, 1);
   });
 
   makeLitTexture(scene, 'px-crystal', 16, 24, (ctx) => {
