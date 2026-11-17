@@ -24,7 +24,10 @@ const game = new Phaser.Game({
 });
 
 const quality = pickQuality({ desktop: game.device.os.desktop, override: params.get('quality') });
-game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase(), quality });
+// Screen shake strength, `?shake=0` to `?shake=100` (percent). Default full.
+const shakeParam = Number(params.get('shake'));
+const shake = params.has('shake') && Number.isFinite(shakeParam) ? Math.min(1, Math.max(0, shakeParam / 100)) : 1;
+game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase(), quality, shake });
 game.scene.add('hud', HudScene, false);
 
 // On touch devices, the first tap asks for fullscreen. It can be refused

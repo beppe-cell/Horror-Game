@@ -8,6 +8,7 @@ import { frameView, pickQuality } from '../src/rules/view';
 import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
 import { waterMask } from '../src/rules/waterMask';
 import { castShadows } from '../src/rules/shadow';
+import { CameraShake } from '../src/rules/shake';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -228,5 +229,48 @@ describe('cast shadows', () => {
   it('casts nothing out of range or from a light on the object', () => {
     expect(castShadows(100, 100, [lamp(400, 100)])).toEqual([]);
     expect(castShadows(100, 100, [lamp(101, 96)])).toEqual([]);
+  });
+});
+
+describe('camera shake', () => {
+  const make = (strength = 1) => new CameraShake({ decay: 2, maxOffset: 6, strength });
+
+  it('decays to rest within 1/decay seconds', () => {
+    const s = make();
+    s.add(1);
+    let off = { x: 1, y: 1 };
+    for (let i = 0; i < 40; i++) off = s.update(1 / 60); // 0.67 s, more than 1/decay = 0.5 s
+    expect(s.level).toBe(0);
+    expect(off).toEqual({ x: 0, y: 0 });
+  });
+
+  it('stacks trauma up to 1 and scales by trauma squared', () => {
+    const s = make();
+    s.add(0.7);
+    s.add(0.7);
+    expect(s.level).toBe(1);
+    const light = make();
+    light.add(0.2);
+    const heavy = make();
+    heavy.add(0.9);
+    let maxLight = 0;
+    let maxHeavy = 0;
+    for (let i = 0; i < 10; i++) {
+      maxLight = Math.max(maxLight, Math.abs(light.update(1 / 60).x));
+      maxHeavy = Math.max(maxHeavy, Math.abs(heavy.update(1 / 60).x));
+    }
+    expect(maxHeavy).toBeGreaterThan(maxLight * 5);
+  });
+
+  it('springs kicks back and respects the strength setting', () => {
+    const s = make();
+    s.kick(-2, 0);
+    expect(s.update(1 / 60).x).toBeLessThan(0);
+    for (let i = 0; i < 30; i++) s.update(1 / 60);
+    expect(s.update(1 / 60).x).toBe(0);
+    const off = make(0);
+    off.add(1);
+    off.kick(5, 5);
+    expect(off.update(1 / 60)).toEqual({ x: 0, y: 0 });
   });
 });
