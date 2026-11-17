@@ -20,5 +20,17 @@ const game = new Phaser.Game({
 
 game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase() });
 
+// On touch devices, the first tap asks for fullscreen and a landscape lock.
+// Both can be refused (iPhone Safari has no fullscreen API), which is fine.
+window.addEventListener(
+  'touchend',
+  () => {
+    if (!game.scale.isFullscreen && game.device.fullscreen.available) game.scale.startFullscreen();
+    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    orientation.lock?.('landscape').catch(() => {});
+  },
+  { once: true },
+);
+
 // Exposed for the smoke test and for debugging from the browser console.
 Object.assign(window, { game });

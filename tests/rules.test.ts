@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng, newSeedString, seedFromString } from '../src/rules/rng';
 import { BASE_STATS, STAT_FLOORS, computeStats, fireCooldownMs, shotLifetimeMs } from '../src/rules/stats';
-import { ShootKeys, moveVector, stickToDir4 } from '../src/rules/input';
+import { ShootKeys, moveVector, stickToDir4, touchSide, virtualStick } from '../src/rules/input';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, allConnected, generateRoom } from '../src/rules/room';
 
 describe('Rng', () => {
@@ -69,6 +69,21 @@ describe('input', () => {
     expect(keys.current()).toBe('left');
     keys.release('left');
     expect(keys.current()).toBeNull();
+  });
+});
+
+describe('touch sticks', () => {
+  it('scales the finger offset by the radius and caps it at 1', () => {
+    expect(virtualStick({ x: 100, y: 100 }, { x: 150, y: 100 }, 100)).toEqual({ x: 0.5, y: 0 });
+    const far = virtualStick({ x: 0, y: 0 }, { x: 0, y: -500 }, 100);
+    expect(far.x).toBeCloseTo(0);
+    expect(far.y).toBeCloseTo(-1);
+    expect(virtualStick({ x: 5, y: 5 }, { x: 5, y: 5 }, 100)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('sends the left half to movement and the right half to shooting', () => {
+    expect(touchSide(100, 1920)).toBe('move');
+    expect(touchSide(1500, 1920)).toBe('shoot');
   });
 });
 

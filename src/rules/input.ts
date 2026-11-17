@@ -55,3 +55,21 @@ export class ShootKeys {
     this.held = [];
   }
 }
+
+/**
+ * Value of a floating virtual stick: the offset of the finger from where it
+ * first touched, divided by the stick radius and capped at length 1.
+ */
+export function virtualStick(origin: Vec2, finger: Vec2, radius: number): Vec2 {
+  const dx = finger.x - origin.x;
+  const dy = finger.y - origin.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return { x: 0, y: 0 };
+  const capped = Math.min(len, radius);
+  return { x: (dx / len) * (capped / radius), y: (dy / len) * (capped / radius) };
+}
+
+/** Which virtual stick a new touch belongs to: left half moves, right half shoots. */
+export function touchSide(x: number, screenWidth: number): 'move' | 'shoot' {
+  return x < screenWidth / 2 ? 'move' : 'shoot';
+}
