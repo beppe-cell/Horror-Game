@@ -15,6 +15,20 @@ export interface Lamp {
   kind: GlowKind;
 }
 
+/**
+ * A small looping effect attached to a prop, made by the game (no frames
+ * needed): rising crystal sparkles, smoke, flare sparks, steam puffs or a
+ * blinking beacon. `fx`/`fy` place it as a fraction of the prop's width and
+ * height from its top-left corner.
+ */
+export interface PropEffect {
+  type: 'sparkle' | 'smoke' | 'sparks' | 'steam' | 'beacon';
+  fx: number;
+  fy: number;
+  /** Average milliseconds between emissions (blink period for a beacon). */
+  every: number;
+}
+
 export interface Biome {
   key: string;
   /** Floor tile ids with how often each appears. */
@@ -32,6 +46,8 @@ export interface Biome {
   crystals: number[];
   /** Props that give off light: colour, reach, strength and how it varies. */
   lamps: Record<number, Lamp>;
+  /** Code-made animations on props, by prop id. */
+  effects: Record<number, PropEffect[]>;
   /** Walkable props that glow, preferred for half of the small props. */
   litDecor: number[];
   /** Fill colour of solid rock behind the walls. */
@@ -65,6 +81,19 @@ export const CRASH_SITE: Biome = {
     10: { color: 0x39d0ff, radius: 45, intensity: 0.7, kind: 'dying' }, // cracked visor
   },
   litDecor: [11, 11, 10, 9],
+  effects: {
+    17: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
+    22: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
+    9: [{ type: 'sparkle', fx: 0.5, fy: 0.4, every: 900 }],
+    23: [{ type: 'smoke', fx: 0.55, fy: 0.15, every: 300 }],
+    11: [
+      { type: 'sparks', fx: 0.85, fy: 0.15, every: 110 },
+      { type: 'smoke', fx: 0.85, fy: 0.15, every: 520 },
+    ],
+    5: [{ type: 'steam', fx: 0.3, fy: 0.35, every: 1800 }],
+    14: [{ type: 'beacon', fx: 0.5, fy: 0.02, every: 1100 }],
+    19: [{ type: 'beacon', fx: 0.5, fy: 0.02, every: 1300 }],
+  },
   rock: '#0e1119',
   door: { metal: '#4f5762', metalLight: '#7d8799', dark: '#05070b', stripe: '#ff9a3c', outline: '#0b0d14' },
 };

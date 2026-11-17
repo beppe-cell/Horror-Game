@@ -13,6 +13,7 @@ import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propKey
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
+import { PropEffects } from '../render/PropEffects';
 import type HudScene from './HudScene';
 
 const ROOM_W = ROOM_COLS * TILE;
@@ -114,6 +115,7 @@ export default class PlayScene extends Phaser.Scene {
   private rings: Phaser.GameObjects.Image[] = [];
   private nextRing = 0;
   private shake!: CameraShake;
+  private propEffects!: PropEffects;
   private shakeStrength = 1;
   /** Where the camera looks before shake (landscape: the room centre). */
   private cameraBase = { x: 0, y: 0 };
@@ -174,6 +176,7 @@ export default class PlayScene extends Phaser.Scene {
     this.water = new Water(this, this.room.cells, 'room-floor', ROOM_X, ROOM_Y, ROOM_W, ROOM_H, high);
     this.water.shader?.setDepth(-9);
     this.add.image(0, 0, 'room-walls').setOrigin(0).setLighting(true).setDepth(1);
+    this.propEffects = new PropEffects(this, high);
     this.buildColliders(rng);
 
     this.player = this.physics.add.sprite(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2, 'player-idle', 0);
@@ -283,6 +286,7 @@ export default class PlayScene extends Phaser.Scene {
     this.player.setDepth(depthAt(this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW));
     this.updateShots();
     this.updateLights(time);
+    this.propEffects.update(time);
     this.hud()?.setDebug(
       `seed ${this.seed}  ${this.quality}  fps ${Math.round(this.game.loop.actualFps)}  ` +
         `dmg ${this.stats.damage.toFixed(1)}  rate ${this.stats.fireRate.toFixed(2)}/s`,
@@ -691,6 +695,7 @@ export default class PlayScene extends Phaser.Scene {
     const baseRow = prop.height - 1;
     this.reflectors.push({ obj: prop, baseRow });
     this.addCaster(prop, baseRow, Math.round(prop.height * 0.8), Math.round(prop.width * 0.85), Math.min(1, prop.width / 30), 4.9);
+    if (id !== undefined) this.propEffects.add(prop, CRASH_SITE.effects[id], rng?.next() ?? Math.random());
     // Glowing props carry a light at their middle, with their own rhythm.
     const lamp = id === undefined ? undefined : CRASH_SITE.lamps[id];
     if (lamp) {

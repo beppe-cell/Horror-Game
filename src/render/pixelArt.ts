@@ -69,6 +69,8 @@ export function makePlaceholderArt(scene: Phaser.Scene): void {
   makeShadow(scene, 'px-shadow', 30, 9, 0.78, 0.46);
   makeShadow(scene, 'px-shadow-cast', 28, 11, 0.72, 0.42);
   makeShadow(scene, 'px-shadow-shot', 9, 4, 0.6, 0.35);
+  // Soft round puff for smoke and steam (alpha baked in, tinted per use).
+  makeShadow(scene, 'px-puff', 7, 7, 0.9, 0.5, '255, 255, 255');
 
   if (!scene.textures.exists('px-shot')) {
     const g = scene.add.graphics();
@@ -98,7 +100,7 @@ export function makePlaceholderArt(scene: Phaser.Scene): void {
  * Pixel ellipse shadow: a darker core and a lighter rim, alpha baked in, so
  * it reads as soft while keeping hard pixel edges.
  */
-function makeShadow(scene: Phaser.Scene, key: string, w: number, h: number, core: number, rim: number): void {
+function makeShadow(scene: Phaser.Scene, key: string, w: number, h: number, core: number, rim: number, rgb = '0, 0, 0'): void {
   if (scene.textures.exists(key)) return;
   const tex = scene.textures.createCanvas(key, w, h)!;
   const ctx = tex.context;
@@ -108,7 +110,7 @@ function makeShadow(scene: Phaser.Scene, key: string, w: number, h: number, core
       const dy = (y + 0.5 - h / 2) / (h / 2);
       const d = dx * dx + dy * dy;
       if (d > 1) continue;
-      ctx.fillStyle = `rgba(0, 0, 0, ${d < 0.45 ? core : rim})`;
+      ctx.fillStyle = `rgba(${rgb}, ${d < 0.45 ? core : rim})`;
       ctx.fillRect(x, y, 1, 1);
     }
   }
