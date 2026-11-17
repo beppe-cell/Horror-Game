@@ -26,15 +26,17 @@ export interface Biome {
   lamps: Record<number, number>;
   /** Fill colour of solid rock behind the walls. */
   rock: string;
+  /** Colours for side and bottom doors, drawn seen from above. */
+  door: { metal: string; metalLight: string; dark: string; stripe: string; outline: string };
 }
 
 export const CRASH_SITE: Biome = {
   key: '1-crash',
+  // Mostly plain slabs; a variant only now and then.
   floors: [
-    { id: 0, weight: 10 },
-    { id: 1, weight: 4 },
+    { id: 0, weight: 60 },
+    { id: 1, weight: 5 },
     { id: 3, weight: 3 },
-    { id: 2, weight: 2 },
     { id: 4, weight: 1 },
     { id: 5, weight: 1 },
   ],
@@ -46,6 +48,7 @@ export const CRASH_SITE: Biome = {
   crystals: [17, 22, 9],
   lamps: { 11: 0xff5040 },
   rock: '#0e1119',
+  door: { metal: '#4f5762', metalLight: '#7d8799', dark: '#05070b', stripe: '#ff9a3c', outline: '#0b0d14' },
 };
 
 const tileKey = (b: Biome, id: number) => `${b.key}-tile-${id}`;
@@ -90,7 +93,7 @@ export function paintFloor(scene: Phaser.Scene, key: string, b: Biome, cols: num
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) ctx.drawImage(source(scene, tileKey(b, pickWeighted(rng, b.floors))), c * TILE, r * TILE);
     }
-    const decals = rng.int(2, 4);
+    const decals = rng.int(0, 2);
     for (let i = 0; i < decals; i++) {
       ctx.drawImage(source(scene, tileKey(b, rng.pick(b.decals))), rng.int(0, cols - 1) * TILE, rng.int(0, rows - 1) * TILE);
     }
@@ -136,21 +139,90 @@ export function paintWalls(
       ctx.drawImage(img, -img.width / 2, -img.height / 2);
       ctx.restore();
     };
-    const pick = (side: 'top' | 'bottom' | 'left' | 'right', i: number) =>
-      source(scene, tileKey(b, isDoor(side, i) ? b.doorClosed : rng.pick(b.wallFaces)));
+    const wall = () => source(scene, tileKey(b, rng.pick(b.wallFaces)));
     for (let c = 0; c < cols; c++) {
       const x = (c + k) * TILE + TILE / 2;
-      const top = pick('top', c);
+      // The top wall faces the camera: its door is the front-view door tile.
+      const top = isDoor('top', c) ? source(scene, tileKey(b, b.doorClosed)) : wall();
       face(top, x, k * TILE - top.height / 2, 0);
-      const bottom = pick('bottom', c);
-      face(bottom, x, (rows + k) * TILE + bottom.height / 2, Math.PI);
+      if (isDoor('bottom', c)) {
+        sideDoor(ctx, b, (c + k) * TILE, (rows + k) * TILE, TILE, k * TILE, 'bottom');
+      } else {
+        const bottom = wall();
+        face(bottom, x, (rows + k) * TILE + bottom.height / 2, Math.PI);
+      }
     }
     for (let r = 0; r < rows; r++) {
       const y = (r + k) * TILE + TILE / 2;
-      const left = pick('left', r);
-      face(left, k * TILE - left.height / 2, y, -Math.PI / 2);
-      const right = pick('right', r);
-      face(right, (cols + k) * TILE + right.height / 2, y, Math.PI / 2);
+      if (isDoor('left', r)) {
+        sideDoor(ctx, b, 0, (r + k) * TILE, k * TILE, TILE, 'left');
+      } else {
+        const left = wall();
+        face(left, k * TILE - left.height / 2, y, -Math.PI / 2);
+      }
+      if (isDoor('right', r)) {
+        sideDoor(ctx, b, (cols + k) * TILE, (r + k) * TILE, k * TILE, TILE, 'right');
+      } else {
+        const right = wall();
+        face(right, (cols + k) * TILE + right.height / 2, y, Math.PI / 2);
+      }
     }
   });
+}
+
+/**
+ * A closed door in a side or bottom wall, seen from above at the 3/4 angle
+ * instead of the front-view tile turned on its side: a dark passage through
+ * the wall, metal jambs along it, and the hatch seen edge-on near the room.
+ * For side doors the jamb nearer the top of the screen is drawn thicker,
+ * because the camera sees its face; the bottom door's hatch shows its front.
+ */
+function sideDoor(
+  ctx: CanvasRenderingContext2D,
+  b: Biome,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  side: 'left' | 'right' | 'bottom',
+): void {
+  const c = b.door;
+  const rect = (color: string, rx: number, ry: number, rw: number, rh: number) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(rx, ry, rw, rh);
+  };
+  // Passage floor, a little lighter near the room.
+  rect(c.dark, x, y, w, h);
+  if (side === 'bottom') {
+    rect('#0d1118', x + 4, y, w - 8, 10);
+    // Jambs along both sides of the passage.
+    for (const jx of [x, x + w - 4]) {
+      rect(c.outline, jx, y, 4, h);
+      rect(c.metal, jx + 1, y, 2, h);
+    }
+    // Hatch seen from above: thin top edge, then its front face towards the camera.
+    const hy = y + 3;
+    rect(c.outline, x + 3, hy - 1, w - 6, 10);
+    rect(c.metalLight, x + 4, hy, w - 8, 2);
+    rect(c.metal, x + 4, hy + 2, w - 8, 6);
+    for (let sx = x + 6; sx < x + w - 6; sx += 6) rect(c.stripe, sx, hy + 3, 3, 3);
+    return;
+  }
+  const roomEdge = side === 'left' ? x + w : x;
+  const dir = side === 'left' ? -1 : 1; // from the room outwards
+  // Lighter strip of passage right next to the room.
+  rect('#0d1118', side === 'left' ? roomEdge - 12 : roomEdge, y + 6, 12, h - 8);
+  // Upper jamb: the camera sees its face, so it is taller.
+  rect(c.outline, x, y - 1, w, 8);
+  rect(c.metal, x, y, w, 5);
+  rect(c.metalLight, x, y, w, 1);
+  // Lower jamb: only its top edge shows.
+  rect(c.outline, x, y + h - 3, w, 3);
+  rect(c.metal, x, y + h - 2, w, 1);
+  // Hatch seen edge-on, just inside the wall, with hazard marks.
+  const hx = roomEdge + dir * 6 - (side === 'left' ? 6 : 0);
+  rect(c.outline, hx - 1, y + 5, 8, h - 7);
+  rect(c.metal, hx, y + 6, 6, h - 9);
+  rect(c.metalLight, side === 'left' ? hx + 5 : hx, y + 6, 1, h - 9);
+  for (let sy = y + 9; sy < y + h - 5; sy += 6) rect(c.stripe, hx + 1, sy, 4, 3);
 }

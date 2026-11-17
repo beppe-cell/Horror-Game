@@ -31,6 +31,8 @@ const SHOT_INHERIT = 0.3;
 const SHOT_HEIGHT = 16;
 /** Row of the boot soles in the 48×48 player frames (see tools/clean_sprites.py). */
 const PLAYER_SOLE_ROW = 46;
+/** Most objects (obstacles, crystals, small props) in one room. */
+const MAX_PROPS = 5;
 /** Reach of a shot's light, in pixels. */
 const SHOT_LIGHT_RADIUS = 90;
 /** Size of the 'px-shadow-cast' texture (see render/pixelArt.ts). */
@@ -152,7 +154,8 @@ export default class PlayScene extends Phaser.Scene {
   create(): void {
     const high = this.quality === 'high';
     const rng = new Rng(seedFromString(this.seed));
-    this.room = generateRoom(rng, DOOR_CELLS, { rockCount: 12, waterPools: rng.int(1, 2), poolSize: 12 });
+    // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, maybe one small prop.
+    this.room = generateRoom(rng, DOOR_CELLS, { rockCount: rng.int(2, 3), waterPools: rng.int(1, 2), poolSize: 12 });
 
     makePlaceholderArt(this);
     createPlayerAnims(this);
@@ -653,7 +656,10 @@ export default class PlayScene extends Phaser.Scene {
     );
 
     // Small walkable props scattered on free floor (some give off light).
-    for (let i = 0; i < 6 && freeCells.length; i++) {
+    const obstacles = this.room.cells.flat().filter((c) => c === 'rock').length;
+    const crystals = Math.min(rng.int(1, 2), MAX_PROPS - obstacles);
+    const decor = Math.min(1, MAX_PROPS - obstacles - crystals);
+    for (let i = 0; i < decor && freeCells.length; i++) {
       const spot = freeCells.splice(rng.int(0, freeCells.length - 1), 1)[0];
       const id = rng.pick(CRASH_SITE.decor);
       const x = ROOM_X + spot.c * TILE + rng.int(8, TILE - 8);
@@ -666,7 +672,7 @@ export default class PlayScene extends Phaser.Scene {
     }
 
     // Bioluminescent crystals along the edges: decoration and light sources.
-    for (let i = 0; i < 3 && edgeCells.length; i++) {
+    for (let i = 0; i < crystals && edgeCells.length; i++) {
       const spot = edgeCells.splice(rng.int(0, edgeCells.length - 1), 1)[0];
       const x = ROOM_X + spot.c * TILE + TILE / 2;
       const baseY = ROOM_Y + (spot.r + 1) * TILE - 4;
