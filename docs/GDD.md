@@ -105,7 +105,7 @@ Tecnica di manutenzione di una nave mineraria, unica sopravvissuta allo schianto
 | Effetto | Qualità alta | Qualità bassa |
 |---|---|---|
 | Luci dinamiche (lampada della tuta, colpi, cristalli bioluminescenti) con mappe di rilievo calcolate dagli sprite | Sì | Sì |
-| Acqua: rifrazione del fondo, onde, caustiche, increspature da passi e colpi, riflessi delle luci, schiuma a riva | Completa | Onde semplificate |
+| Acqua: onde in movimento, rifrazione del fondo, assorbimento del colore con la profondità, riflessi capovolti di personaggio, rocce e cristalli, riflessi e scintillii delle luci, caustiche dove arriva la luce, increspature da passi e colpi, riva bagnata e schiuma | Completa | Onde semplificate, meno schiuma |
 | Bloom | Sì | No |
 | Nebbia a strati | Sì | No |
 | Particelle (scintille, pulviscolo) | Tutte | Solo scintille |

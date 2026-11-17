@@ -6,6 +6,7 @@ import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, allConnected, generateRoom } from '..
 import { normalMapFromRgba } from '../src/rules/normalmap';
 import { frameView, pickQuality } from '../src/rules/view';
 import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
+import { waterMask } from '../src/rules/waterMask';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -178,5 +179,17 @@ describe('player facing and animation', () => {
     expect(animKey('idle', 'up')).toEqual({ key: 'player-idle-up', flipX: false });
     expect(actionFrom({ x: 0, y: 0 }, true)).toBe('shoot');
     expect(actionFrom({ x: 0, y: 1 }, false)).toBe('walk');
+  });
+});
+
+describe('water mask', () => {
+  it('is 1 inside a pool, 0 far away and about 0.5 on the shore', () => {
+    const water = Array.from({ length: 5 }, (_, r) => Array.from({ length: 9 }, (_, c) => c < 4 && r >= 0));
+    const m = waterMask(water, 8, 3);
+    const at = (x: number, y: number) => m.data[y * m.width + x];
+    expect(at(4, 20)).toBeCloseTo(1, 2); // deep inside (column 0)
+    expect(at(m.width - 2, 20)).toBeCloseTo(0, 2); // far dry side
+    expect(at(32, 20)).toBeGreaterThan(0.3); // shoreline between cell 3 and 4
+    expect(at(32, 20)).toBeLessThan(0.7);
   });
 });
