@@ -44,8 +44,8 @@ VIEW: side view facing RIGHT only, seen slightly from above (3/4 top-down). The 
 
 LAYOUT: exactly 6 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no numbers.
 Row 1, CRAWL loop, 6 frames: the huge body heaves forward in a slow wave from tail to head, the legs drag, the egg sac wobbles, the mandibles twitch open and shut.
-Row 2, SPORE BURST attack, 6 frames: the body swells, the eggs in the sac bulge and glow, she rears up with the mouth wide open, the sac pores burst and spray a ring of yellow-green spores outward, she slumps back, back to rest.
-Row 3, BURROW, 6 frames: frames 1-3 she lowers her head and digs into the ground until only the hull plates on her back show, then only a mound of dirt; frames 4-6 the ground cracks open and she bursts up out of it with the mouth wide open, dirt flying.
+Row 2, SPORE BURST attack, 6 frames: the body swells, the eggs in the sac bulge and glow, she rears up with the mandibles spread wide, the sac pores burst and spray a ring of yellow-green spores outward, she slumps back, back to rest.
+Row 3, BURROW, 6 frames: frames 1-3 she lowers her head and digs into the ground until only the hull plates on her back show, then only a mound of dirt; frames 4-6 the ground cracks open and she bursts up out of it with the mandibles spread wide, dirt flying.
 Row 4: frames 1-3 LAY BROOD (she arches, the egg sac pulses and drops a wet egg behind her, the egg splits and a small crawler tick scuttles out); frames 4-6 DEATH (the egg sac bursts, yellow-green goo sprays out, the body deflates and collapses under the hull plates, a big puddle of goo remains).
 
 BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
