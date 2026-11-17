@@ -7,11 +7,13 @@ import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
 import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
 import { CameraShake } from '../rules/shake';
+import { GlowKind, glowIntensity } from '../rules/glow';
 import { TILE, WALL_TILES, makePlaceholderArt } from '../render/pixelArt';
-import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propKey } from '../render/biome';
+import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propAnimKey, propKey } from '../render/biome';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
+import { PropEffects } from '../render/PropEffects';
 import type HudScene from './HudScene';
 
 const ROOM_W = ROOM_COLS * TILE;
@@ -31,6 +33,8 @@ const SHOT_INHERIT = 0.3;
 const SHOT_HEIGHT = 16;
 /** Row of the boot soles in the 48×48 player frames (see tools/clean_sprites.py). */
 const PLAYER_SOLE_ROW = 46;
+/** Most objects (obstacles, crystals, small props) in one room. */
+const MAX_PROPS = 7;
 /** Reach of a shot's light, in pixels. */
 const SHOT_LIGHT_RADIUS = 90;
 /** Size of the 'px-shadow-cast' texture (see render/pixelArt.ts). */
@@ -99,7 +103,8 @@ export default class PlayScene extends Phaser.Scene {
   private lastMove = { x: 0, y: 0 };
   private playerLight!: Phaser.GameObjects.Light;
   private shotLights: Phaser.GameObjects.Light[] = [];
-  private crystalLights: { light: Phaser.GameObjects.Light; base: number; phase: number }[] = [];
+  /** Lights of glowing objects (crystals, flares, embers…), each with its own rhythm. */
+  private glows: { light: Phaser.GameObjects.Light; base: number; phase: number; kind: GlowKind; color: number; radius: number }[] = [];
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
   private trail!: Phaser.GameObjects.Particles.ParticleEmitter;
   private muzzleFlash!: Phaser.GameObjects.Image;
@@ -110,6 +115,7 @@ export default class PlayScene extends Phaser.Scene {
   private rings: Phaser.GameObjects.Image[] = [];
   private nextRing = 0;
   private shake!: CameraShake;
+  private propEffects!: PropEffects;
   private shakeStrength = 1;
   /** Where the camera looks before shake (landscape: the room centre). */
   private cameraBase = { x: 0, y: 0 };
@@ -133,7 +139,7 @@ export default class PlayScene extends Phaser.Scene {
     this.nextShotAt = 0;
     this.shotsFired = 0;
     this.shotLights = [];
-    this.crystalLights = [];
+    this.glows = [];
     this.reflectors = [];
     this.casters = [];
     this.facing = 'down';
@@ -152,7 +158,8 @@ export default class PlayScene extends Phaser.Scene {
   create(): void {
     const high = this.quality === 'high';
     const rng = new Rng(seedFromString(this.seed));
-    this.room = generateRoom(rng, DOOR_CELLS, { rockCount: 12, waterPools: rng.int(1, 2), poolSize: 12 });
+    // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, up to two small props.
+    this.room = generateRoom(rng, DOOR_CELLS, { rockCount: rng.int(2, 3), waterPools: rng.int(1, 2), poolSize: 12 });
 
     makePlaceholderArt(this);
     createPlayerAnims(this);
@@ -169,6 +176,7 @@ export default class PlayScene extends Phaser.Scene {
     this.water = new Water(this, this.room.cells, 'room-floor', ROOM_X, ROOM_Y, ROOM_W, ROOM_H, high);
     this.water.shader?.setDepth(-9);
     this.add.image(0, 0, 'room-walls').setOrigin(0).setLighting(true).setDepth(1);
+    this.propEffects = new PropEffects(this, high);
     this.buildColliders(rng);
 
     this.player = this.physics.add.sprite(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2, 'player-idle', 0);
@@ -278,6 +286,7 @@ export default class PlayScene extends Phaser.Scene {
     this.player.setDepth(depthAt(this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW));
     this.updateShots();
     this.updateLights(time);
+    this.propEffects.update(time);
     this.hud()?.setDebug(
       `seed ${this.seed}  ${this.quality}  fps ${Math.round(this.game.loop.actualFps)}  ` +
         `dmg ${this.stats.damage.toFixed(1)}  rate ${this.stats.fireRate.toFixed(2)}/s`,
@@ -536,7 +545,7 @@ export default class PlayScene extends Phaser.Scene {
       light.intensity = shot ? 1.2 : 0;
       if (shot) light.setPosition(shot.x, shot.y);
     });
-    for (const c of this.crystalLights) c.light.intensity = c.base + Math.sin(time / 700 + c.phase) * c.base * 0.25;
+    for (const g of this.glows) g.light.intensity = glowIntensity(g.kind, g.base, time, g.phase);
 
     // Lights the water sees: the suit lamp, the nearest shots and the crystals.
     const waterLights: WaterLight[] = [
@@ -545,15 +554,15 @@ export default class PlayScene extends Phaser.Scene {
     for (const shot of active.slice(0, 2)) {
       waterLights.push({ x: shot.x, y: shot.y, radius: SHOT_LIGHT_RADIUS, intensity: 1.1, color: 0x7cf7d4 });
     }
-    for (const c of this.crystalLights) {
-      waterLights.push({ x: c.light.x, y: c.light.y, radius: 110, intensity: c.light.intensity, color: 0x4dffb0 });
+    for (const g of this.glows) {
+      waterLights.push({ x: g.light.x, y: g.light.y, radius: g.radius, intensity: g.light.intensity, color: g.color });
     }
     this.water.setLights(waterLights);
     // Every lit shot and every crystal casts shadows; the suit lamp does not.
     const shadowLights: ShadowLight[] = active
       .slice(0, LIT_SHOTS)
       .map((shot) => ({ x: shot.x, y: shot.y, radius: SHOT_LIGHT_RADIUS, intensity: 1.1 }));
-    for (const c of this.crystalLights) shadowLights.push({ x: c.light.x, y: c.light.y, radius: 110, intensity: c.light.intensity });
+    for (const g of this.glows) shadowLights.push({ x: g.light.x, y: g.light.y, radius: g.radius, intensity: g.light.intensity });
     this.updateShadows(shadowLights);
     this.water.updateReflections(this.reflectors, (x, y) => this.brightnessAt(waterLights, x, y));
   }
@@ -636,10 +645,10 @@ export default class PlayScene extends Phaser.Scene {
       row.forEach((cell, c) => {
         if (cell === 'rock') {
           // Obstacle prop standing on the bottom of its cell.
-          const key = propKey(CRASH_SITE, rng.pick(CRASH_SITE.obstacles));
+          const id = rng.pick(CRASH_SITE.obstacles);
           const x = ROOM_X + c * TILE + TILE / 2;
           const baseY = ROOM_Y + (r + 1) * TILE - 3;
-          const prop = this.addProp(key, x, baseY, true);
+          const prop = this.addProp(propKey(CRASH_SITE, id), x, baseY, true, id, rng);
           this.walls.add(prop);
           const body = prop.body as Phaser.Physics.Arcade.StaticBody;
           const bw = Math.min(prop.width - 4, TILE - 4);
@@ -653,27 +662,25 @@ export default class PlayScene extends Phaser.Scene {
     );
 
     // Small walkable props scattered on free floor (some give off light).
-    for (let i = 0; i < 6 && freeCells.length; i++) {
+    const obstacles = this.room.cells.flat().filter((c) => c === 'rock').length;
+    const crystals = Math.min(rng.int(1, 2), MAX_PROPS - obstacles);
+    const decor = Math.max(0, Math.min(2, MAX_PROPS - obstacles - crystals));
+    for (let i = 0; i < decor && freeCells.length; i++) {
       const spot = freeCells.splice(rng.int(0, freeCells.length - 1), 1)[0];
-      const id = rng.pick(CRASH_SITE.decor);
+      // Half of the small props are ones that glow (flares, broken visors…).
+      const id = rng.next() < 0.5 ? rng.pick(CRASH_SITE.litDecor) : rng.pick(CRASH_SITE.decor);
       const x = ROOM_X + spot.c * TILE + rng.int(8, TILE - 8);
       const baseY = ROOM_Y + spot.r * TILE + rng.int(16, TILE - 4);
-      this.addProp(propKey(CRASH_SITE, id), x, baseY, false);
-      const lamp = CRASH_SITE.lamps[id];
-      if (lamp !== undefined) {
-        this.crystalLights.push({ light: this.lights.addLight(x, baseY - 6, 60, lamp, 0.8), base: 0.8, phase: rng.next() * 6 });
-      }
+      this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
     }
 
     // Bioluminescent crystals along the edges: decoration and light sources.
-    for (let i = 0; i < 3 && edgeCells.length; i++) {
+    for (let i = 0; i < crystals && edgeCells.length; i++) {
       const spot = edgeCells.splice(rng.int(0, edgeCells.length - 1), 1)[0];
       const x = ROOM_X + spot.c * TILE + TILE / 2;
       const baseY = ROOM_Y + (spot.r + 1) * TILE - 4;
-      const crystal = this.addProp(propKey(CRASH_SITE, rng.pick(CRASH_SITE.crystals)), x, baseY, false);
-      const base = 0.9;
-      const light = this.lights.addLight(x, baseY - crystal.height / 2, 110, 0x4dffb0, base);
-      this.crystalLights.push({ light, base, phase: rng.next() * 6 });
+      const id = rng.pick(CRASH_SITE.crystals);
+      this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
     }
   }
 
@@ -681,13 +688,40 @@ export default class PlayScene extends Phaser.Scene {
    * Places a lit prop standing at (x, baseY): mirrored in the water, with a
    * contact shadow and cast shadows, drawn in front of what is behind it.
    */
-  private addProp(key: string, x: number, baseY: number, solid: boolean): Phaser.GameObjects.Image {
+  private addProp(key: string, x: number, baseY: number, solid: boolean, id?: number, rng?: Rng): Phaser.GameObjects.Image {
+    // Props with a drawn animation become looping sprites, each starting on a different frame.
+    if (!solid && id !== undefined && CRASH_SITE.animated[id]) {
+      const sprite = this.add.sprite(x, baseY, propAnimKey(CRASH_SITE, id));
+      sprite.play({ key: propAnimKey(CRASH_SITE, id), startFrame: Math.floor((rng?.next() ?? 0) * 4) });
+      const prop = this.finishProp(sprite as unknown as Phaser.GameObjects.Image, x, baseY, false, id, rng);
+      // A flame gives off its own light: draw it at full brightness, not lit by the room.
+      prop.setLighting(false);
+      return prop;
+    }
     const prop = (solid ? this.physics.add.staticImage(x, baseY, key) : this.add.image(x, baseY, key)) as Phaser.GameObjects.Image;
+    return this.finishProp(prop, x, baseY, solid, id, rng);
+  }
+
+  private finishProp(prop: Phaser.GameObjects.Image, x: number, baseY: number, solid: boolean, id?: number, rng?: Rng): Phaser.GameObjects.Image {
     prop.setOrigin(0.5, 1).setLighting(true).setDepth(depthAt(baseY));
     if (solid) (prop.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
     const baseRow = prop.height - 1;
     this.reflectors.push({ obj: prop, baseRow });
     this.addCaster(prop, baseRow, Math.round(prop.height * 0.8), Math.round(prop.width * 0.85), Math.min(1, prop.width / 30), 4.9);
+    if (id !== undefined) this.propEffects.add(prop, CRASH_SITE.effects[id], rng?.next() ?? Math.random());
+    // Glowing props carry a light at their middle, with their own rhythm.
+    const lamp = id === undefined ? undefined : CRASH_SITE.lamps[id];
+    if (lamp) {
+      const light = this.lights.addLight(x, baseY - prop.height / 2, lamp.radius, lamp.color, lamp.intensity);
+      this.glows.push({
+        light,
+        base: lamp.intensity,
+        phase: (rng?.next() ?? Math.random()) * 6,
+        kind: lamp.kind,
+        color: lamp.color,
+        radius: lamp.radius,
+      });
+    }
     return prop;
   }
 }

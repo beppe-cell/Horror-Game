@@ -15,9 +15,14 @@ Output, per sheet NAME:
 Usage:
   python3 -I tools/extract_sprites.py OUT_DIR NAME=SHEET.jpeg[@tile32] ...
 
-Add @tile32 to a tileset sheet: Gemini often draws tiles bigger than asked,
-so the art pixel size is then chosen to make the square tiles exactly 32
-pixels, instead of being measured. Walls keep their proportions.
+Options, appended to the path:
+  @tile32   tileset: the art pixel size is chosen so square tiles come out
+            exactly 32 px (Gemini often draws them bigger than asked).
+  @px=N     force the art pixel size to N screen pixels, e.g. to shrink a
+            piece drawn at a larger scale than the rest of the art.
+  @anim     animation strip: frames keep a common size, aligned on their
+            bottom-left corner, so the animation does not jitter; a
+            NAME-strip.png with all frames in a row is written too.
 """
 import json
 import sys
@@ -104,15 +109,17 @@ def main():
     out_dir = Path(sys.argv[1])
     out_dir.mkdir(parents=True, exist_ok=True)
     for arg in sys.argv[2:]:
-        name, path = arg.split('=', 1)
-        tile_px = None
-        if '@tile' in path:
-            path, tile = path.split('@tile')
-            tile_px = int(tile)
+        name, spec = arg.split('=', 1)
+        path, *opts = spec.split('@')
+        tile_px = next((int(o[4:]) for o in opts if o.startswith('tile')), None)
+        forced_px = next((float(o[3:]) for o in opts if o.startswith('px=')), None)
+        anim = 'anim' in opts
         img = np.asarray(Image.open(path).convert('RGB')).astype(np.float32)
-        s = estimate_pixel_size(img)
+        s = forced_px or estimate_pixel_size(img)
         fg = ~is_magenta(img)
         boxes = [b for b in components(fg, 2) if (b[2] - b[0]) >= MIN_SIDE_PX * s and (b[3] - b[1]) >= MIN_SIDE_PX * s]
+        if forced_px:
+            boxes = [b for b in components(fg, 2) if (b[2] - b[0]) >= MIN_SIDE_PX * 4 and (b[3] - b[1]) >= MIN_SIDE_PX * 4]
         if tile_px:
             squares = [b[2] - b[0] for b in boxes if abs((b[2] - b[0]) - (b[3] - b[1])) <= 0.08 * (b[2] - b[0])]
             s = float(np.median(squares)) / tile_px
@@ -140,9 +147,21 @@ def main():
         sheet_dir = out_dir / name
         sheet_dir.mkdir(parents=True, exist_ok=True)
         meta = {'pixelSize': round(float(s), 2), 'pieces': []}
+        cleaned = [trim(clean_specks(quantize(fix_fringe(p, outline), palette))) for p in pieces]
+        if anim:
+            fw = max(p.shape[1] for p in cleaned if p.size)
+            fh = max(p.shape[0] for p in cleaned if p.size)
+            padded = []
+            for p in cleaned:
+                canvas = np.zeros((fh, fw, 4), dtype=np.uint8)
+                if p.size:
+                    canvas[fh - p.shape[0]:, :p.shape[1]] = p
+                padded.append(canvas)
+            cleaned = padded
+            Image.fromarray(np.concatenate(cleaned, axis=1), 'RGBA').save(out_dir / f'{name}-strip.png')
+            meta['frameWidth'], meta['frameHeight'] = fw, fh
         thumbs = []
-        for k, (p, b) in enumerate(zip(pieces, ordered)):
-            p = trim(clean_specks(quantize(fix_fringe(p, outline), palette)))
+        for k, (p, b) in enumerate(zip(cleaned, ordered)):
             if p.size == 0:
                 continue
             Image.fromarray(p, 'RGBA').save(sheet_dir / f'{k:02d}.png')

@@ -9,6 +9,7 @@ import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
 import { waterMask } from '../src/rules/waterMask';
 import { castShadows } from '../src/rules/shadow';
 import { CameraShake } from '../src/rules/shake';
+import { GlowKind, glowIntensity } from '../src/rules/glow';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -272,5 +273,25 @@ describe('camera shake', () => {
     off.add(1);
     off.kick(5, 5);
     expect(off.update(1 / 60)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('glowing objects', () => {
+  const sample = (kind: GlowKind) => Array.from({ length: 2000 }, (_, i) => glowIntensity(kind, 1, i * 10, 0.7));
+
+  it('keeps every kind positive and near its base', () => {
+    for (const kind of ['pulse', 'flicker', 'ember', 'dying'] as GlowKind[]) {
+      const v = sample(kind);
+      expect(Math.min(...v)).toBeGreaterThan(0);
+      expect(Math.max(...v)).toBeLessThan(1.3);
+    }
+  });
+
+  it('gives each kind its own character', () => {
+    const range = (v: number[]) => Math.max(...v) - Math.min(...v);
+    expect(range(sample('pulse'))).toBeCloseTo(0.5, 1); // smooth ±25%
+    expect(Math.min(...sample('flicker'))).toBeLessThan(0.4); // sputters
+    expect(Math.min(...sample('dying'))).toBeLessThan(0.15); // cuts out
+    expect(sample('dying').filter((x) => x < 0.2).length).toBeGreaterThan(100);
   });
 });
