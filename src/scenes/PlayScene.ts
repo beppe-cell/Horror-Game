@@ -4,9 +4,11 @@ import { BASE_STATS, Stats, computeStats, fireCooldownMs, shotLifetimeMs } from 
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
 import { Quality, frameView } from '../rules/view';
+import { actionFrom, animKey, facingFrom } from '../rules/facing';
 import { TILE, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
 import { Water } from '../render/Water';
 import { addFog } from '../render/Fog';
+import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import type HudScene from './HudScene';
 
 const ROOM_W = ROOM_COLS * TILE;
@@ -50,6 +52,8 @@ export default class PlayScene extends Phaser.Scene {
   private moveKeys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private nextShotAt = 0;
   private nextStepRippleAt = 0;
+  facing: Dir4 = 'down';
+  private lastMove = { x: 0, y: 0 };
   private playerLight!: Phaser.GameObjects.Light;
   private shotLights: Phaser.GameObjects.Light[] = [];
   private crystalLights: { light: Phaser.GameObjects.Light; base: number; phase: number }[] = [];
@@ -68,6 +72,11 @@ export default class PlayScene extends Phaser.Scene {
     this.shotsFired = 0;
     this.shotLights = [];
     this.crystalLights = [];
+    this.facing = 'down';
+  }
+
+  preload(): void {
+    preloadPlayer(this);
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -81,6 +90,7 @@ export default class PlayScene extends Phaser.Scene {
     this.room = generateRoom(rng, DOOR_CELLS, { rockCount: 12, waterPools: rng.int(1, 2), poolSize: 12 });
 
     makePlaceholderArt(this);
+    createPlayerAnims(this);
     makeRoomFloor(this, 'room-floor', ROOM_COLS, ROOM_ROWS, rng.int(0, 1e9));
     makeRoomWalls(this, 'room-walls', ROOM_COLS, ROOM_ROWS, this.room.doors);
 
@@ -95,10 +105,13 @@ export default class PlayScene extends Phaser.Scene {
     this.add.image(0, 0, 'room-walls').setOrigin(0).setLighting(true).setDepth(1);
     this.buildColliders(rng);
 
-    this.player = this.physics.add.sprite(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2, 'px-player');
+    this.player = this.physics.add.sprite(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2, 'player-idle', 0);
     this.player.setLighting(true).setDepth(10);
-    this.player.body!.setSize(14, 12).setOffset(9, 18); // feet, so heads overlap walls like 3/4 view
-    this.playerLight = this.lights.addLight(this.player.x, this.player.y, 150, 0xcfeeff, 1.6);
+    // Hitbox at the boots (frame is 48×48, soles on row 46), so the helmet can
+    // overlap the wall above like in a 3/4 view.
+    this.player.body!.setSize(14, 8).setOffset(17, 38);
+    this.player.play('player-idle-down');
+    this.playerLight = this.lights.addLight(this.player.x, this.player.y, 150, 0xcfeeff, 1.2);
 
     this.shots = this.physics.add.group({ defaultKey: 'px-shot', maxSize: 40 });
     for (let i = 0; i < LIT_SHOTS; i++) {
@@ -133,7 +146,7 @@ export default class PlayScene extends Phaser.Scene {
         })
         .setDepth(15);
       addFog(this, ROOM_X, ROOM_Y, ROOM_W, ROOM_H).setDepth(30);
-      Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: 0.55, blurRadius: 2, blendAmount: 0.9 });
+      Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: 0.78, blurRadius: 2, blendAmount: 0.7 });
     }
 
     this.bindInput();
@@ -169,6 +182,7 @@ export default class PlayScene extends Phaser.Scene {
   update(time: number): void {
     this.updateMovement(time);
     this.updateShooting(time);
+    this.updateAnimation();
     this.updateShots(time);
     this.updateLights(time);
     this.hud()?.setDebug(
@@ -224,10 +238,10 @@ export default class PlayScene extends Phaser.Scene {
     const v = moveVector(x, y);
     const speed = this.px(this.stats.moveSpeed);
     this.player.setVelocity(v.x * speed, v.y * speed);
-    if (v.x) this.player.setFlipX(v.x < 0);
+    this.lastMove = v;
 
     // Wading: ripples at the feet while moving through water.
-    const feetY = this.player.y + 10;
+    const feetY = this.player.y + 20;
     if ((v.x || v.y) && time >= this.nextStepRippleAt && this.water.contains(this.room.cells, this.player.x, feetY, TILE)) {
       this.water.ripple(this.player.x, feetY, 0.6);
       this.nextStepRippleAt = time + 260;
@@ -243,6 +257,14 @@ export default class PlayScene extends Phaser.Scene {
     return pad ? stickToDir4(pad.rightStick.x, pad.rightStick.y) : null;
   }
 
+  private updateAnimation(): void {
+    const shoot = this.shootDirection();
+    this.facing = facingFrom(this.lastMove, shoot, this.facing);
+    const { key, flipX } = animKey(actionFrom(this.lastMove, !!shoot), this.facing);
+    this.player.setFlipX(flipX);
+    if (this.player.anims.currentAnim?.key !== key) this.player.play(key, true);
+  }
+
   private updateShooting(time: number): void {
     const dir = this.shootDirection();
     if (!dir || time < this.nextShotAt) return;
@@ -250,7 +272,8 @@ export default class PlayScene extends Phaser.Scene {
     if (!shot) return;
     const d = DIR4_VECTORS[dir];
     const body = this.player.body as Phaser.Physics.Arcade.Body;
-    shot.enableBody(true, this.player.x + d.x * 10, this.player.y + d.y * 10, true, true);
+    // From the blaster, roughly at chest height (the sprite centre is above the waist).
+    shot.enableBody(true, this.player.x + d.x * 14, this.player.y + 6 + d.y * 10, true, true);
     shot.body!.setSize(6, 6);
     const speed = this.px(this.stats.shotSpeed);
     shot.setVelocity(d.x * speed + body.velocity.x * SHOT_INHERIT, d.y * speed + body.velocity.y * SHOT_INHERIT);
@@ -276,8 +299,8 @@ export default class PlayScene extends Phaser.Scene {
 
   private updateLights(time: number): void {
     // Suit lamp with a faint flicker.
-    this.playerLight.setPosition(this.player.x, this.player.y - 4);
-    this.playerLight.intensity = 1.5 + Math.sin(time / 90) * 0.04 + Math.sin(time / 37) * 0.03;
+    this.playerLight.setPosition(this.player.x, this.player.y);
+    this.playerLight.intensity = 1.15 + Math.sin(time / 90) * 0.04 + Math.sin(time / 37) * 0.03;
 
     const active = this.shots.getChildren().filter((c) => c.active) as Phaser.Physics.Arcade.Image[];
     this.shotLights.forEach((light, i) => {

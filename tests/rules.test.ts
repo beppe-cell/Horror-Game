@@ -5,6 +5,7 @@ import { ShootKeys, moveVector, stickToDir4, touchSide, virtualStick } from '../
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, allConnected, generateRoom } from '../src/rules/room';
 import { normalMapFromRgba } from '../src/rules/normalmap';
 import { frameView, pickQuality } from '../src/rules/view';
+import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -159,5 +160,20 @@ describe('view framing', () => {
     expect(pickQuality({ desktop: false })).toBe('low');
     expect(pickQuality({ desktop: false, override: 'high' })).toBe('high');
     expect(pickQuality({ desktop: true, override: 'nonsense' })).toBe('high');
+  });
+});
+
+describe('player facing and animation', () => {
+  it('faces the shooting direction over the movement direction', () => {
+    expect(facingFrom({ x: 1, y: 0 }, 'up', 'down')).toBe('up');
+    expect(facingFrom({ x: -0.9, y: 0.2 }, null, 'down')).toBe('left');
+    expect(facingFrom({ x: 0, y: 0 }, null, 'right')).toBe('right');
+  });
+
+  it('picks the sheet row and flips the side view for left', () => {
+    expect(animKey('walk', 'left')).toEqual({ key: 'player-walk-side', flipX: true });
+    expect(animKey('idle', 'up')).toEqual({ key: 'player-idle-up', flipX: false });
+    expect(actionFrom({ x: 0, y: 0 }, true)).toBe('shoot');
+    expect(actionFrom({ x: 0, y: 1 }, false)).toBe('walk');
   });
 });

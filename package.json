@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "sprites": "python3 -I tools/clean_sprites.py art/processed/player reference=art/raw/player/01-reference.jpeg idle=art/raw/player/02-idle.jpeg walk=art/raw/player/03-walk.jpeg shoot=art/raw/player/04-shoot.jpeg hurt-death=art/raw/player/05-hurt-death.jpeg && cp art/processed/player/idle.png art/processed/player/walk.png art/processed/player/shoot.png art/processed/player/hurt-death.png art/processed/player/player.json public/sprites/player/"
   },
   "dependencies": {
     "phaser": "4.2.1"

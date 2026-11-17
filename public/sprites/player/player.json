@@ -1,0 +1,56 @@
+{
+  "frameWidth": 48,
+  "frameHeight": 48,
+  "columns": 6,
+  "rows": 3,
+  "palette": [
+    "#de823f",
+    "#921a34",
+    "#626c7b",
+    "#1e3142",
+    "#060b17",
+    "#e3e2cf",
+    "#1b849b",
+    "#d7e3ee",
+    "#260329",
+    "#4d3f3b",
+    "#8bf4f9",
+    "#0c1321",
+    "#afb7ba",
+    "#505964",
+    "#100319",
+    "#384556",
+    "#23acc3",
+    "#8893a2",
+    "#06050f",
+    "#31dcf0",
+    "#dd2162",
+    "#180322"
+  ],
+  "sheets": {
+    "reference": {
+      "pixelSize": 5.75,
+      "emptyFrames": []
+    },
+    "idle": {
+      "pixelSize": 5.75,
+      "emptyFrames": []
+    },
+    "walk": {
+      "pixelSize": 5.75,
+      "emptyFrames": []
+    },
+    "shoot": {
+      "pixelSize": 5.75,
+      "emptyFrames": []
+    },
+    "hurt-death": {
+      "pixelSize": 5.75,
+      "emptyFrames": [
+        9,
+        10,
+        11
+      ]
+    }
+  }
+}

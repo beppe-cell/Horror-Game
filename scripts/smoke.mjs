@@ -40,6 +40,7 @@ const state = (page) =>
       x: s.player.x,
       vx: Math.round(s.player.body.velocity.x),
       shotsFired: s.shotsFired,
+      anim: s.player.anims.currentAnim?.key ?? null,
       water: !!s.water.shader,
       canvas: [window.game.canvas.width, window.game.canvas.height],
       zoom: Number(cam.zoom.toFixed(2)),
@@ -115,6 +116,8 @@ for (const [name, r] of Object.entries(results)) {
   // and Phaser slows the simulation down rather than skipping frames.
   if (r.vx <= 0 || r.moved <= 0) failures.push(`${name}: player not moving right (vx ${r.vx}, moved ${r.moved}px)`);
   if (r.shotsFired < 1) failures.push(`${name}: no shots fired`);
+  // Moving right while shooting up: the astronaut faces up and plays the shoot animation.
+  if (r.anim !== 'player-shoot-up') failures.push(`${name}: expected animation player-shoot-up, got ${r.anim}`);
   if (name !== 'desktop' && !r.touchUsed) failures.push(`${name}: touch never registered`);
 }
 console.log(JSON.stringify({ results, errors }, null, 2));

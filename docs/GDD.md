@@ -91,10 +91,14 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 - **Stile:** pixel art con effetti visivi realistici. Il contrasto tra pixel netti e luce, acqua e atmosfera morbide è l'identità visiva del gioco.
 - **Prospettiva:** top-down 3/4.
-- **Dimensioni:** tile 32×32 px. Giocatore circa 14×26 px dentro un riquadro 32×32.
+- **Dimensioni:** tile 32×32 px. Personaggi in riquadri 48×48 px: l'astronauta è circa 29×41 px, con la testa grande (circa 1,3 tile di altezza).
 - **Animazioni:** 6 frame per ciclo.
   - Giocatore e personaggi: 3 direzioni (giù, su, lato); la sinistra è il lato specchiato.
   - Nemici e boss: 1 vista specchiata.
+
+### Protagonista: Vega-7
+
+Tecnica di manutenzione di una nave mineraria, unica sopravvissuta allo schianto. Prudente e testarda, non una soldatessa. Dettagli fissi: casco grande con visiera ciano graffiata e antenna dalla punta arancione, striscia arancione sulla spalla, "7" sul petto, toppa sul ginocchio, zaino con tubi e spia verde, torcia alla cintura, display da polso, blaster ricavato da un attrezzo da miniera. Prompt in `docs/art/prompt-astronauta.md`.
 
 ### Effetti
 
@@ -113,10 +117,10 @@ Il piano 4 (laboratorio allagato) è la vetrina dell'acqua.
 1. L'utente genera le immagini con Gemini (piano gratuito), seguendo la guida di stile e i prompt preparati da Claude. In alternativa, o in aggiunta, si usano pacchetti di pixel art CC0.
 2. Prompt con sfondo a tinta unita magenta `#FF00FF`.
 3. L'utente carica i file su GitHub in `art/raw/<nome-entità>/`.
-4. Uno script ripulisce la pixel art generata: riporta i pixel su una griglia vera, riduce a una palette fissa, rimuove lo sfondo e divide i frame.
+4. `npm run sprites` (script `tools/clean_sprites.py`) ripulisce la pixel art generata: trova la dimensione dei pixel, li riporta su una griglia vera, riduce i colori a una palette comune a tutti i fogli del personaggio, rimuove il magenta e allinea i frame (piedi sulla stessa riga, casco centrato). Risultato in `public/sprites/<entità>/`.
 5. Il gioco calcola da solo le mappe di rilievo per le luci.
 
-**Pilota all'inizio dell'M3:** si genera solo lo sprite sheet del giocatore. Se la pixel art di Gemini non regge la pulizia, si passa ai pacchetti CC0.
+**Pilota (fatto):** i 5 fogli dell'astronauta generati con Gemini reggono la pulizia, quindi la pipeline Gemini è confermata. I pacchetti CC0 restano un ripiego.
 
 ## 10. Audio
 
