@@ -15,7 +15,9 @@ import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import { PropEffects } from '../render/PropEffects';
-import { Health, applyDamage, cellIcons, newHealth } from '../rules/health';
+import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
+import { ENERGY_CELL_FRAME, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../rules/items';
+import { ITEMS_KEY, makeBossItemArt } from '../render/placeholderBossItems';
 import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
 
@@ -94,7 +96,24 @@ export interface RunState {
   /** Rooms whose enemies are all dead. */
   cleared: number[];
   visited: number[];
+  /** Items picked up, in order. */
+  items: ItemId[];
+  /** Treasure rooms whose item was taken. */
+  taken: number[];
 }
+
+/** Something lying in the room that the astronaut picks up by walking onto it. */
+interface Pickup {
+  icon: Phaser.GameObjects.Image;
+  light: Phaser.GameObjects.Light;
+  x: number;
+  y: number;
+  radius: number;
+  /** Returns false to leave it on the floor (for example a full suit). */
+  take: () => boolean;
+}
+
+const BOSS_NAME = 'Madre della covata';
 
 export interface PlayData {
   seed?: string;
@@ -151,6 +170,7 @@ export default class PlayScene extends Phaser.Scene {
   /** Doors of this room: the closed-door image and the blocker that stops the player. */
   private doors: { side: Side; image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite; blocker?: Phaser.GameObjects.Zone }[] = [];
   private leaving = false;
+  private pickups: Pickup[] = [];
   dead = false;
   enemies!: EnemyManager;
   /** Free floor cells left after props are placed, for enemies to start on. */
@@ -169,14 +189,15 @@ export default class PlayScene extends Phaser.Scene {
 
   init(data: PlayData): void {
     this.seed = data.run?.seed ?? data.seed ?? newSeedString();
-    this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [] };
+    this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [] };
     this.doors = [];
+    this.pickups = [];
     this.leaving = false;
     this.quality = data.quality ?? 'high';
     this.shakeStrength = data.shake ?? 1;
     this.impactLights = [];
     this.rings = [];
-    this.stats = computeStats(BASE_STATS, []);
+    this.stats = computeStats(BASE_STATS, itemModifiers(this.run.items));
     this.shootKeys.clear();
     this.nextShotAt = 0;
     this.shotsFired = 0;
@@ -215,9 +236,12 @@ export default class PlayScene extends Phaser.Scene {
     // Each room has its own seed, so walking back into it rebuilds the same room.
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}`));
     // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, up to two small props.
-    this.room = generateRoom(rng, sides.map((side) => SIDE_DOOR[side]), { rockCount: rng.int(2, 3), waterPools: rng.int(1, 2), poolSize: 12 });
+    // The boss needs room to move: no obstacles in her lair.
+    const rockCount = this.here.kind === 'boss' ? 0 : rng.int(2, 3);
+    this.room = generateRoom(rng, sides.map((side) => SIDE_DOOR[side]), { rockCount, waterPools: rng.int(1, 2), poolSize: 12 });
 
     makePlaceholderArt(this);
+    makeBossItemArt(this);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
     paintFloor(this, 'room-floor', CRASH_SITE, ROOM_COLS, ROOM_ROWS, new Rng(rng.int(0, 1e9)));
@@ -253,7 +277,9 @@ export default class PlayScene extends Phaser.Scene {
       this.shotLights.push(this.lights.addLight(0, 0, SHOT_LIGHT_RADIUS, 0x7cf7d4, 0).setVisible(false));
     }
     this.physics.add.collider(this.player, this.walls);
-    this.physics.add.overlap(this.shots, this.walls, (shot) => this.killShot(shot as Phaser.Physics.Arcade.Image, true));
+    this.physics.add.overlap(this.shots, this.walls, (shot, wall) => {
+      if (!this.bounceShot(shot as Phaser.Physics.Arcade.Image, wall as Phaser.GameObjects.GameObject)) this.killShot(shot as Phaser.Physics.Arcade.Image, true);
+    });
 
     this.sparks = this.add.particles(0, 0, 'px-spark', {
       lifespan: { min: 200, max: 450 },
@@ -290,12 +316,15 @@ export default class PlayScene extends Phaser.Scene {
       shots: this.shots,
       tile: TILE,
       shotDamage: () => this.stats.damage,
-      shotHit: (shot, x, y) => {
+      shotHit: (shot, x, y, keep) => {
         const v = shot.body!.velocity;
         this.impactFeedback(x, y, v.x, v.y);
+        if (keep) return;
         this.tweens.killTweensOf(shot);
         this.retireShot(shot);
       },
+      pierce: () => hasEffect(this.run.items, 'pierce'),
+      bounds: { x: ROOM_X, y: ROOM_Y, w: ROOM_W, h: ROOM_H },
       hurtPlayer: (amount, fromX, fromY) => this.hurtPlayer(amount, fromX, fromY),
       track: (obj, baseRow, height, width) => {
         this.reflectors.push({ obj, baseRow });
@@ -308,19 +337,25 @@ export default class PlayScene extends Phaser.Scene {
     });
     this.enemies.onCleared = () => {
       this.run.cleared.push(this.here.id);
-      this.hud()?.flash(this.here.kind === 'boss' ? 'Piano ripulito' : 'Stanza ripulita');
+      this.hud()?.flash(this.here.kind === 'boss' ? `${BOSS_NAME} sconfitta` : 'Stanza ripulita');
       this.openDoors(true);
       this.syncMap();
+      if (this.here.kind === 'normal') this.maybeDropEnergy();
     };
+    this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? BOSS_NAME : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
-    const fights = (this.here.kind === 'normal' || this.here.kind === 'boss') && !this.run.cleared.includes(this.here.id);
-    // No boss yet: its room holds a double wave.
-    for (let wave = 0; fights && wave < (this.here.kind === 'boss' ? 2 : 1); wave++) {
+    const fights = !this.run.cleared.includes(this.here.id);
+    if (fights && this.here.kind === 'normal') {
       this.enemies.spawn(enemyRng, this.spawnCells, this.playerFeet(), (c, r) => ({
         x: ROOM_X + c * TILE + TILE / 2,
         y: ROOM_Y + (r + 1) * TILE - 4,
       }));
+    } else if (fights && this.here.kind === 'boss') {
+      // She waits on the far side of the room from the door.
+      const away = { up: [0, 2], down: [0, -2], left: [4, 0], right: [-4, 0] }[this.run.from ?? 'up'];
+      this.enemies.spawnBoss(ROOM_X + (6.5 + away[0]) * TILE, ROOM_Y + (4 + away[1]) * TILE - 4);
     }
+    if (this.here.kind === 'treasure') this.addPedestal();
     this.addDoors(sides);
     if (this.enemies.alive === 0) this.openDoors(false);
 
@@ -349,6 +384,99 @@ export default class PlayScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.frameCamera, this));
     if (!this.scene.isActive('hud')) this.scene.launch('hud');
     if (this.run.from) this.cameras.main.fadeIn(180, 0, 0, 0);
+  }
+
+  /** Treasure room: an alien pedestal in the middle, with an item floating over it until taken. */
+  private addPedestal(): void {
+    const x = ROOM_X + 6.5 * TILE;
+    const baseY = ROOM_Y + 4 * TILE - 4;
+    const pedestal = this.physics.add.staticImage(x, baseY, ITEMS_KEY, PEDESTAL_FRAME);
+    pedestal.setOrigin(0.5, 1).setLighting(true).setDepth(depthAt(baseY));
+    const body = pedestal.body as Phaser.Physics.Arcade.StaticBody;
+    body.updateFromGameObject();
+    body.setSize(22, 10).setOffset(5, 21);
+    this.walls.add(pedestal);
+    this.reflectors.push({ obj: pedestal, baseRow: 31 });
+    this.addCaster(pedestal, 31, 18, 24, 0.9, 4.9);
+    if (this.run.taken.includes(this.here.id)) return;
+    const id = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:item`)), this.run.items);
+    if (!id) return;
+    this.addPickup(ITEMS[id].frame, x, baseY - 33, ITEMS[id].color, 26, () => {
+      this.run.taken.push(this.here.id);
+      this.takeItem(id);
+      return true;
+    });
+  }
+
+  /** A floating, softly lit pickup at (x, y); `take` runs when the astronaut's feet come within `radius`. */
+  private addPickup(frame: number, x: number, y: number, color: number, radius: number, take: () => boolean): void {
+    const icon = this.add.image(x, y, ITEMS_KEY, frame).setLighting(true).setDepth(depthAt(y + 34) + 0.01);
+    this.tweens.add({ targets: icon, y: y - 3, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    const light = this.lights.addLight(x, y, 70, color, 0.9);
+    this.pickups.push({ icon, light, x, y: y + 33, radius, take });
+  }
+
+  private updatePickups(): void {
+    const feet = this.playerFeet();
+    for (const p of this.pickups) {
+      if (Math.hypot(feet.x - p.x, feet.y - p.y) > p.radius || !p.take()) continue;
+      this.pickups = this.pickups.filter((x) => x !== p);
+      this.tweens.killTweensOf(p.icon);
+      this.tweens.add({ targets: p.icon, y: p.icon.y - 24, alpha: 0, duration: 400, ease: 'Quad.Out', onComplete: () => p.icon.destroy() });
+      this.tweens.add({ targets: p.light, intensity: 0, duration: 400, onComplete: () => this.lights.removeLight(p.light) });
+      this.sparks.setEmitterAngle({ min: 0, max: 360 });
+      this.sparks.explode(16, p.icon.x, p.icon.y);
+    }
+  }
+
+  /** Adds an item to the run: stats, suit and shot effects change at once. */
+  takeItem(id: ItemId): void {
+    this.run.items.push(id);
+    this.stats = computeStats(BASE_STATS, itemModifiers(this.run.items));
+    this.health = applyItemToHealth(this.health, id);
+    this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+    this.hud()?.flash(`${ITEMS[id].name}\n${ITEMS[id].hint}`);
+    this.shake.add(0.2);
+  }
+
+  /** A cleared room may leave an energy cell in the middle (more often with luck). */
+  private maybeDropEnergy(): void {
+    const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
+    if (rng.next() >= energyDropChance(this.stats.luck)) return;
+    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + 6.5 * TILE, ROOM_Y + 3.5 * TILE - 20, 0x39d0ff, 16, () => {
+      if (this.health.hp >= this.health.max) return false;
+      this.health = heal(this.health, 1);
+      this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+      return true;
+    });
+  }
+
+  /**
+   * With the reflecting prism a shot bounces off the first wall it meets:
+   * the velocity flips on the side it came in from, and it keeps the range
+   * it had left. Returns false when the shot should break instead.
+   */
+  private bounceShot(shot: Phaser.Physics.Arcade.Image, wall: Phaser.GameObjects.GameObject): boolean {
+    if (!shot.active || shot.getData('dropping') || shot.getData('bounces') >= 1 || !hasEffect(this.run.items, 'bounce')) return false;
+    const sb = shot.body as Phaser.Physics.Arcade.Body;
+    const wb = wall.body as Phaser.Physics.Arcade.StaticBody | null;
+    if (!wb) return false;
+    const ox = Math.min(sb.right, wb.right) - Math.max(sb.x, wb.x);
+    const oy = Math.min(sb.bottom, wb.bottom) - Math.max(sb.y, wb.y);
+    const v = sb.velocity;
+    this.impactFeedback(shot.x, shot.y, v.x, v.y);
+    if (ox < oy) {
+      v.x = -v.x;
+      shot.x += Math.sign(v.x) * (ox + 1);
+    } else {
+      v.y = -v.y;
+      shot.y += Math.sign(v.y) * (oy + 1);
+    }
+    const travelled = Math.hypot(shot.x - (shot.getData('startX') as number), shot.y - (shot.getData('startY') as number));
+    shot.setData('range', Math.max(0, (shot.getData('range') as number) - travelled));
+    shot.setData('startX', shot.x).setData('startY', shot.y).setData('bounces', 1);
+    shot.setRotation(Math.atan2(v.y, v.x));
+    return true;
   }
 
   /** Where the player stands on arrival: just inside the door they came through, or the centre. */
@@ -493,9 +621,12 @@ export default class PlayScene extends Phaser.Scene {
       const side = this.exitSide();
       if (side) this.leave(side);
     }
-    this.enemies.update(time);
+    this.enemies.update(time, delta);
+    if (!this.dead && !this.leaving) this.updatePickups();
     if (!this.hudSynced && this.hud()) {
       this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
+      const bossFight = this.here.kind === 'boss' && this.enemies.alive > 0;
+      this.hud()!.setBoss(bossFight ? BOSS_NAME : null, 1);
       this.syncMap();
       const title = !this.run.from
         ? 'Piano 1 — Sito dello schianto'
@@ -517,7 +648,7 @@ export default class PlayScene extends Phaser.Scene {
     this.propEffects.update(time);
     this.hud()?.setDebug(
       `seed ${this.seed}  ${this.quality}  fps ${Math.round(this.game.loop.actualFps)}  ` +
-        `dmg ${this.stats.damage.toFixed(1)}  rate ${this.stats.fireRate.toFixed(2)}/s`,
+        `dmg ${this.stats.damage.toFixed(1)}  rate ${this.stats.fireRate.toFixed(2)}/s  items ${this.run.items.length}`,
     );
   }
 
@@ -695,7 +826,7 @@ export default class PlayScene extends Phaser.Scene {
     this.placeShotShadow(shot);
     shot.setDepth(12).setBlendMode(Phaser.BlendModes.ADD).setAlpha(1);
     shot.setRotation(Math.atan2(shot.body!.velocity.y, shot.body!.velocity.x));
-    shot.setData('dropping', false).setData('born', time);
+    shot.setData('dropping', false).setData('born', time).setData('hit', []).setData('bounces', 0);
     // Spawn pop: stretched along the flight, then springs to its rest shape.
     this.tweens.killTweensOf(shot);
     shot.setScale(1.7, 0.55);

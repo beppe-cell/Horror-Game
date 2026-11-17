@@ -28,6 +28,9 @@ export default class HudScene extends Phaser.Scene {
   private banner!: Phaser.GameObjects.Text;
   private map!: Phaser.GameObjects.Graphics;
   private mapRooms: MapRoom[] = [];
+  private bossBar!: Phaser.GameObjects.Graphics;
+  private bossName!: Phaser.GameObjects.Text;
+  private boss: { name: string; frac: number } | null = null;
 
   constructor() {
     super('hud');
@@ -50,6 +53,12 @@ export default class HudScene extends Phaser.Scene {
       .setDepth(110)
       .setAlpha(0);
     this.banner.setShadow(0, 2, '#000000', 6, true, true);
+    this.bossBar = this.add.graphics().setDepth(100);
+    this.bossName = this.add
+      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '13px', color: '#ff8a8a' })
+      .setOrigin(0.5, 1)
+      .setDepth(100);
+    this.bossName.setShadow(0, 1, '#000000', 4, true, true);
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
   }
@@ -60,6 +69,30 @@ export default class HudScene extends Phaser.Scene {
     this.message.setPosition(width / 2, height / 2).setWordWrapWidth(width * 0.85);
     this.banner.setPosition(width / 2, height * 0.18);
     this.drawMap();
+    this.drawBoss();
+  }
+
+  /** Boss health bar at the bottom of the screen; null hides it. */
+  setBoss(name: string | null, frac = 1): void {
+    this.boss = name ? { name, frac } : null;
+    this.drawBoss();
+  }
+
+  private drawBoss(): void {
+    const g = this.bossBar;
+    if (!g) return;
+    g.clear();
+    this.bossName.setVisible(!!this.boss);
+    if (!this.boss) return;
+    const { width, height } = this.scale;
+    const w = Math.min(360, width * 0.6);
+    const x = (width - w) / 2;
+    const y = height - 44;
+    g.fillStyle(0x0b0d14, 0.85).fillRect(x - 3, y - 3, w + 6, 16);
+    g.fillStyle(0x3a0f18, 1).fillRect(x, y, w, 10);
+    g.fillStyle(0xd84a4a, 1).fillRect(x, y, w * this.boss.frac, 10);
+    g.fillStyle(0xff8a8a, 1).fillRect(x, y, w * this.boss.frac, 2);
+    this.bossName.setText(this.boss.name).setPosition(width / 2, y - 6);
   }
 
   /** Minimap in the top-right corner. */
