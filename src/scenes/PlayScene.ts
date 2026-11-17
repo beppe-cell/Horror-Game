@@ -9,7 +9,7 @@ import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
 import { CameraShake } from '../rules/shake';
 import { GlowKind, glowIntensity } from '../rules/glow';
 import { TILE, WALL_TILES, makePlaceholderArt } from '../render/pixelArt';
-import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propKey } from '../render/biome';
+import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propAnimKey, propKey } from '../render/biome';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
@@ -689,7 +689,20 @@ export default class PlayScene extends Phaser.Scene {
    * contact shadow and cast shadows, drawn in front of what is behind it.
    */
   private addProp(key: string, x: number, baseY: number, solid: boolean, id?: number, rng?: Rng): Phaser.GameObjects.Image {
+    // Props with a drawn animation become looping sprites, each starting on a different frame.
+    if (!solid && id !== undefined && CRASH_SITE.animated[id]) {
+      const sprite = this.add.sprite(x, baseY, propAnimKey(CRASH_SITE, id));
+      sprite.play({ key: propAnimKey(CRASH_SITE, id), startFrame: Math.floor((rng?.next() ?? 0) * 4) });
+      const prop = this.finishProp(sprite as unknown as Phaser.GameObjects.Image, x, baseY, false, id, rng);
+      // A flame gives off its own light: draw it at full brightness, not lit by the room.
+      prop.setLighting(false);
+      return prop;
+    }
     const prop = (solid ? this.physics.add.staticImage(x, baseY, key) : this.add.image(x, baseY, key)) as Phaser.GameObjects.Image;
+    return this.finishProp(prop, x, baseY, solid, id, rng);
+  }
+
+  private finishProp(prop: Phaser.GameObjects.Image, x: number, baseY: number, solid: boolean, id?: number, rng?: Rng): Phaser.GameObjects.Image {
     prop.setOrigin(0.5, 1).setLighting(true).setDepth(depthAt(baseY));
     if (solid) (prop.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
     const baseRow = prop.height - 1;

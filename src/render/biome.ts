@@ -46,6 +46,8 @@ export interface Biome {
   crystals: number[];
   /** Props that give off light: colour, reach, strength and how it varies. */
   lamps: Record<number, Lamp>;
+  /** Props replaced by a drawn animation strip (in sprites/rooms/<key>/anim/). */
+  animated: Record<number, { file: string; frameWidth: number; frameHeight: number; fps: number }>;
   /** Code-made animations on props, by prop id. */
   effects: Record<number, PropEffect[]>;
   /** Walkable props that glow, preferred for half of the small props. */
@@ -81,13 +83,14 @@ export const CRASH_SITE: Biome = {
     10: { color: 0x39d0ff, radius: 45, intensity: 0.7, kind: 'dying' }, // cracked visor
   },
   litDecor: [11, 11, 10, 9],
+  animated: { 11: { file: 'flare', frameWidth: 12, frameHeight: 16, fps: 9 } },
   effects: {
     17: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
     22: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
     9: [{ type: 'sparkle', fx: 0.5, fy: 0.4, every: 900 }],
     23: [{ type: 'smoke', fx: 0.55, fy: 0.15, every: 300 }],
     11: [
-      { type: 'sparks', fx: 0.85, fy: 0.15, every: 110 },
+      { type: 'sparks', fx: 0.85, fy: 0.1, every: 260 },
       { type: 'smoke', fx: 0.85, fy: 0.15, every: 520 },
     ],
     5: [{ type: 'steam', fx: 0.3, fy: 0.35, every: 1800 }],
@@ -107,9 +110,17 @@ function ids(b: Biome): { tiles: number[]; props: number[] } {
   return { tiles: [...tiles], props: [...props] };
 }
 
+export const propAnimKey = (b: Biome, id: number) => `${b.key}-anim-${id}`;
+
 export function preloadBiome(scene: Phaser.Scene, b: Biome): void {
   const { tiles, props } = ids(b);
   const pad = (n: number) => String(n).padStart(2, '0');
+  for (const [id, a] of Object.entries(b.animated)) {
+    scene.load.spritesheet(propAnimKey(b, Number(id)), `sprites/rooms/${b.key}/anim/${a.file}.png`, {
+      frameWidth: a.frameWidth,
+      frameHeight: a.frameHeight,
+    });
+  }
   for (const id of tiles) scene.load.image(tileKey(b, id), `sprites/rooms/${b.key}/tiles/${pad(id)}.png`);
   for (const id of props) scene.load.image(propKey(b, id), `sprites/rooms/${b.key}/props/${pad(id)}.png`);
 }
@@ -117,6 +128,13 @@ export function preloadBiome(scene: Phaser.Scene, b: Biome): void {
 /** Normal maps so the scene lights shape every prop. */
 export function prepareBiome(scene: Phaser.Scene, b: Biome): void {
   for (const id of ids(b).props) attachNormalMap(scene, propKey(b, id));
+  for (const [id, a] of Object.entries(b.animated)) {
+    const key = propAnimKey(b, Number(id));
+    attachNormalMap(scene, key);
+    if (!scene.anims.exists(key)) {
+      scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(key), frameRate: a.fps, repeat: -1 });
+    }
+  }
 }
 
 function source(scene: Phaser.Scene, key: string): HTMLImageElement {
