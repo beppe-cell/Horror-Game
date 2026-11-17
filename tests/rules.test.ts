@@ -6,6 +6,7 @@ import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, allConnected, generateRoom } from '..
 import { normalMapFromRgba } from '../src/rules/normalmap';
 import { frameView, pickQuality } from '../src/rules/view';
 import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
+import { waterMask } from '../src/rules/waterMask';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -140,16 +141,19 @@ describe('normal maps', () => {
 });
 
 describe('view framing', () => {
-  it('fits the whole room in landscape', () => {
-    const v = frameView(1920, 1080, 480, 288, 32);
+  it('frames a 16:9 screen like classic room-based twin-stick games', () => {
+    // 13×7 interior of 32 px tiles; character frame 41 px tall.
+    const v = frameView(1920, 1080, 416, 224, 32);
     expect(v.orientation).toBe('landscape');
     expect(v.follow).toBe(false);
-    expect(480 * v.zoom).toBeLessThanOrEqual(1920);
-    expect(288 * v.zoom).toBeLessThanOrEqual(1080);
+    expect((416 * v.zoom) / 1920).toBeGreaterThan(0.65);
+    expect((416 * v.zoom) / 1920).toBeLessThan(0.75);
+    expect((224 * v.zoom) / 1080).toBeCloseTo(2 / 3, 1);
+    expect((41 * v.zoom) / 1080).toBeCloseTo(0.12, 1);
   });
 
   it('follows the player in portrait with about 8 tiles across', () => {
-    const v = frameView(1080, 1920, 480, 288, 32);
+    const v = frameView(1080, 1920, 416, 224, 32);
     expect(v.orientation).toBe('portrait');
     expect(v.follow).toBe(true);
     expect(1080 / v.zoom / 32).toBeCloseTo(8.5);
@@ -175,5 +179,17 @@ describe('player facing and animation', () => {
     expect(animKey('idle', 'up')).toEqual({ key: 'player-idle-up', flipX: false });
     expect(actionFrom({ x: 0, y: 0 }, true)).toBe('shoot');
     expect(actionFrom({ x: 0, y: 1 }, false)).toBe('walk');
+  });
+});
+
+describe('water mask', () => {
+  it('is 1 inside a pool, 0 far away and about 0.5 on the shore', () => {
+    const water = Array.from({ length: 5 }, (_, r) => Array.from({ length: 9 }, (_, c) => c < 4 && r >= 0));
+    const m = waterMask(water, 8, 3);
+    const at = (x: number, y: number) => m.data[y * m.width + x];
+    expect(at(4, 20)).toBeCloseTo(1, 2); // deep inside (column 0)
+    expect(at(m.width - 2, 20)).toBeCloseTo(0, 2); // far dry side
+    expect(at(32, 20)).toBeGreaterThan(0.3); // shoreline between cell 3 and 4
+    expect(at(32, 20)).toBeLessThan(0.7);
   });
 });
