@@ -123,6 +123,17 @@ Il piano 4 (laboratorio allagato) è la vetrina dell'acqua.
 
 **Pilota (fatto):** i 5 fogli dell'astronauta generati con Gemini reggono la pulizia, quindi la pipeline Gemini è confermata. I pacchetti CC0 restano un ripiego.
 
+### Feedback dei colpi
+
+| Evento | Risposta |
+|---|---|
+| Sparo | Dardo al plasma allungato e orientato nella direzione di volo, che nasce "stirato" e si assesta con un rimbalzo; lampo a stella alla canna; guizzo di luce; piccolo contraccolpo della telecamera opposto al colpo |
+| In volo | Scia luminosa che si assottiglia, leggero tremolio del plasma, luce che illumina e proietta ombre, ombra a terra |
+| Impatto su muro o roccia | Scintille che rimbalzano dalla superficie, anello d'urto, flash di luce, leggera scossa dello schermo |
+| Fine gittata | Il dardo cade sulla sua ombra e si spegne in qualche scintilla, oppure fa uno spruzzo e un'increspatura se cade in acqua |
+
+Lo scuotimento dello schermo usa il "trauma" che decade nel tempo (morbido, mai a scatti casuali) ed è regolabile con `?shake=0` … `?shake=100` (percentuale).
+
 ## 10. Audio
 
 - Effetti CC0 (Kenney, Freesound) più effetti retro generati con jsfxr.

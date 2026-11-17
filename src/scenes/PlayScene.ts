@@ -6,6 +6,7 @@ import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../r
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
 import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
+import { CameraShake } from '../rules/shake';
 import { TILE, WALL_TILES, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
@@ -66,6 +67,8 @@ const SHOOT_CODES: Record<string, Dir4> = {
 export interface PlayData {
   seed?: string;
   quality?: Quality;
+  /** Screen shake strength, 0 (off) to 1. */
+  shake?: number;
 }
 
 export default class PlayScene extends Phaser.Scene {
@@ -89,6 +92,18 @@ export default class PlayScene extends Phaser.Scene {
   private shotLights: Phaser.GameObjects.Light[] = [];
   private crystalLights: { light: Phaser.GameObjects.Light; base: number; phase: number }[] = [];
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private trail!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private muzzleFlash!: Phaser.GameObjects.Image;
+  private muzzleLight!: Phaser.GameObjects.Light;
+  /** Short light pulses where shots hit; reused in turn. */
+  private impactLights: Phaser.GameObjects.Light[] = [];
+  private nextImpactLight = 0;
+  private rings: Phaser.GameObjects.Image[] = [];
+  private nextRing = 0;
+  private shake!: CameraShake;
+  private shakeStrength = 1;
+  /** Where the camera looks before shake (landscape: the room centre). */
+  private cameraBase = { x: 0, y: 0 };
   /** Astronaut, rocks and crystals, with their shadows. */
   private casters: ShadowCaster[] = [];
   /** Objects mirrored in the water (player first, then rocks and crystals). */
@@ -101,6 +116,9 @@ export default class PlayScene extends Phaser.Scene {
   init(data: PlayData): void {
     this.seed = data.seed ?? newSeedString();
     this.quality = data.quality ?? 'high';
+    this.shakeStrength = data.shake ?? 1;
+    this.impactLights = [];
+    this.rings = [];
     this.stats = computeStats(BASE_STATS, []);
     this.shootKeys.clear();
     this.nextShotAt = 0;
@@ -154,7 +172,7 @@ export default class PlayScene extends Phaser.Scene {
     this.addCaster(this.player, PLAYER_SOLE_ROW, PLAYER_HEIGHT, 18, 1, 9);
     this.playerLight = this.lights.addLight(this.player.x, this.player.y, 150, 0xcfeeff, 1.2);
 
-    this.shots = this.physics.add.group({ defaultKey: 'px-shot', maxSize: 40 });
+    this.shots = this.physics.add.group({ defaultKey: 'px-bolt', maxSize: 40 });
     for (let i = 0; i < LIT_SHOTS; i++) {
       this.shotLights.push(this.lights.addLight(0, 0, SHOT_LIGHT_RADIUS, 0x7cf7d4, 0).setVisible(false));
     }
@@ -170,6 +188,24 @@ export default class PlayScene extends Phaser.Scene {
       emitting: false,
     });
     this.sparks.setDepth(20);
+    // Glowing trail behind every bolt in flight.
+    this.trail = this.add.particles(0, 0, 'px-spark', {
+      lifespan: 170,
+      speed: 0,
+      scale: { start: 1.6, end: 0 },
+      alpha: { start: 0.65, end: 0 },
+      tint: [0x7cf7d4, 0x39d0ff],
+      blendMode: Phaser.BlendModes.ADD,
+      emitting: false,
+    });
+    this.trail.setDepth(11);
+    this.muzzleFlash = this.add.image(0, 0, 'px-flash').setDepth(13).setBlendMode(Phaser.BlendModes.ADD).setVisible(false);
+    this.muzzleLight = this.lights.addLight(0, 0, 70, 0x9ffcf0, 0);
+    for (let i = 0; i < 3; i++) {
+      this.impactLights.push(this.lights.addLight(0, 0, 80, 0x9ffcf0, 0));
+      this.rings.push(this.add.image(0, 0, 'px-ring').setDepth(19).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
+    }
+    this.shake = new CameraShake({ decay: 2.2, maxOffset: 5, strength: this.shakeStrength });
 
     if (high) {
       // Dust motes drifting in the dark.
@@ -206,6 +242,7 @@ export default class PlayScene extends Phaser.Scene {
     cam.setZoom(view.zoom);
     if (view.follow) {
       cam.startFollow(this.player, true, 0.12, 0.12);
+      cam.setFollowOffset(0, 0);
       // Keep the room centred vertically and stop at the side walls.
       cam.setBounds(0, FRAME_H / 2 - height / view.zoom / 2, FRAME_W, height / view.zoom);
     } else {
@@ -213,6 +250,7 @@ export default class PlayScene extends Phaser.Scene {
       cam.removeBounds();
       cam.centerOn(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2);
     }
+    this.cameraBase = { x: ROOM_X + ROOM_W / 2, y: ROOM_Y + ROOM_H / 2 };
   }
 
   private hud(): HudScene | undefined {
@@ -220,7 +258,8 @@ export default class PlayScene extends Phaser.Scene {
     return hud?.touch ? hud : undefined;
   }
 
-  update(time: number): void {
+  update(time: number, delta: number): void {
+    this.applyShake(delta / 1000);
     this.updateMovement(time);
     this.updateShooting(time);
     this.updateAnimation();
@@ -298,6 +337,17 @@ export default class PlayScene extends Phaser.Scene {
     return pad ? stickToDir4(pad.rightStick.x, pad.rightStick.y) : null;
   }
 
+  /** Camera shake and recoil kicks: visual only, the bodies never move. */
+  private applyShake(dt: number): void {
+    const off = this.shake.update(dt);
+    const cam = this.cameras.main;
+    if (this.scale.height > this.scale.width) {
+      cam.setFollowOffset(-off.x, -off.y); // portrait: the camera follows the player
+    } else {
+      cam.centerOn(this.cameraBase.x + off.x, this.cameraBase.y + off.y);
+    }
+  }
+
   private updateAnimation(): void {
     const shoot = this.shootDirection();
     this.facing = facingFrom(this.lastMove, shoot, this.facing);
@@ -328,16 +378,112 @@ export default class PlayScene extends Phaser.Scene {
     }
     shadow.setVisible(true);
     this.placeShotShadow(shot);
-    shot.setDepth(12).setBlendMode(Phaser.BlendModes.ADD);
+    shot.setDepth(12).setBlendMode(Phaser.BlendModes.ADD).setAlpha(1);
+    shot.setRotation(Math.atan2(shot.body!.velocity.y, shot.body!.velocity.x));
+    shot.setData('dropping', false).setData('born', time);
+    // Spawn pop: stretched along the flight, then springs to its rest shape.
+    this.tweens.killTweensOf(shot);
+    shot.setScale(1.7, 0.55);
+    this.tweens.add({ targets: shot, scaleX: 1, scaleY: 1, duration: 110, ease: 'Back.Out' });
+    this.fireFeedback(shot.x, shot.y, d);
     this.nextShotAt = time + fireCooldownMs(this.stats);
     this.shotsFired++;
   }
 
+  /** Muzzle flash, a light blink at the barrel and a small recoil of the view. */
+  private fireFeedback(x: number, y: number, d: { x: number; y: number }): void {
+    this.tweens.killTweensOf(this.muzzleFlash);
+    this.muzzleFlash
+      .setPosition(x, y)
+      .setVisible(true)
+      .setAlpha(1)
+      .setScale(1.4)
+      .setRotation(Math.random() * Math.PI);
+    this.tweens.add({
+      targets: this.muzzleFlash,
+      scale: 0.5,
+      alpha: 0,
+      duration: 80,
+      ease: 'Quad.Out',
+      onComplete: () => this.muzzleFlash.setVisible(false),
+    });
+    this.muzzleLight.setPosition(x, y);
+    this.muzzleLight.intensity = 1.3;
+    this.tweens.killTweensOf(this.muzzleLight);
+    this.tweens.add({ targets: this.muzzleLight, intensity: 0, duration: 90, ease: 'Quad.Out' });
+    this.shake.kick(-d.x * 1.5, -d.y * 1.5);
+  }
+
+  /**
+   * Impact on a wall or rock: sparks bouncing back off the surface, an
+   * expanding ring, a light pulse and a small shake.
+   */
+  private impactFeedback(x: number, y: number, vx: number, vy: number): void {
+    const back = Phaser.Math.RadToDeg(Math.atan2(-vy, -vx));
+    this.sparks.setEmitterAngle({ min: back - 55, max: back + 55 });
+    this.sparks.explode(12, x, y);
+    const ring = this.rings[this.nextRing];
+    this.nextRing = (this.nextRing + 1) % this.rings.length;
+    this.tweens.killTweensOf(ring);
+    ring.setPosition(x, y).setVisible(true).setAlpha(1).setScale(0.3);
+    this.tweens.add({ targets: ring, scale: 1.3, alpha: 0, duration: 160, ease: 'Quad.Out', onComplete: () => ring.setVisible(false) });
+    const light = this.impactLights[this.nextImpactLight];
+    this.nextImpactLight = (this.nextImpactLight + 1) % this.impactLights.length;
+    light.setPosition(x, y);
+    light.intensity = 1.5;
+    this.tweens.killTweensOf(light);
+    this.tweens.add({ targets: light, intensity: 0, duration: 140, ease: 'Quad.Out' });
+    this.shake.add(0.12);
+  }
+
+  /**
+   * End of range: the bolt falls onto its shadow, then fizzles out in a few
+   * sparks, or splashes and ripples if it lands in water.
+   */
+  private dropShot(shot: Phaser.Physics.Arcade.Image): void {
+    shot.setData('dropping', true);
+    shot.body!.enable = false;
+    const groundY = shot.y + SHOT_HEIGHT;
+    this.tweens.killTweensOf(shot);
+    this.tweens.add({
+      targets: shot,
+      y: groundY,
+      scaleX: 0.5,
+      scaleY: 0.5,
+      duration: 110,
+      ease: 'Quad.In',
+      onComplete: () => {
+        if (this.water.contains(this.room.cells, shot.x, groundY, TILE)) {
+          this.water.ripple(shot.x, groundY, 1.3);
+          this.sparks.setEmitterAngle({ min: 220, max: 320 });
+          this.sparks.explode(6, shot.x, groundY);
+        } else {
+          this.sparks.setEmitterAngle({ min: 0, max: 360 });
+          this.sparks.explode(4, shot.x, groundY);
+        }
+        this.retireShot(shot);
+      },
+    });
+  }
+
+  private retireShot(shot: Phaser.Physics.Arcade.Image): void {
+    (shot.getData('shadow') as Phaser.GameObjects.Image | undefined)?.setVisible(false);
+    shot.setData('dropping', false);
+    shot.disableBody(true, true);
+  }
+
   private updateShots(): void {
+    const t = this.time.now;
     for (const child of this.shots.getChildren()) {
       const shot = child as Phaser.Physics.Arcade.Image;
-      if (shot.active) this.placeShotShadow(shot);
-      if (!shot.active) continue;
+      if (!shot.active || shot.getData('dropping')) continue;
+      this.placeShotShadow(shot);
+      this.trail.emitParticleAt(shot.x, shot.y, 1);
+      // Plasma shimmer once the spawn pop is over.
+      if (t - (shot.getData('born') as number) > 120) {
+        const w = 1 + Math.sin(t / 35 + shot.x * 0.1) * 0.1;
+        shot.setScale(w, 2 - w);
+      }
       const travelled = Math.hypot(shot.x - (shot.getData('startX') as number), shot.y - (shot.getData('startY') as number));
       if (travelled >= (shot.getData('range') as number)) this.killShot(shot, false);
     }
@@ -354,13 +500,15 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   private killShot(shot: Phaser.Physics.Arcade.Image, hitWall: boolean): void {
-    if (!shot.active) return;
-    // A shot that runs out of range drops where its shadow is.
-    const groundY = shot.y + SHOT_HEIGHT;
-    if (!hitWall && this.water.contains(this.room.cells, shot.x, groundY, TILE)) this.water.ripple(shot.x, groundY, 1.2);
-    else this.sparks.explode(hitWall ? 10 : 5, shot.x, shot.y);
-    (shot.getData('shadow') as Phaser.GameObjects.Image | undefined)?.setVisible(false);
-    shot.disableBody(true, true);
+    if (!shot.active || shot.getData('dropping')) return;
+    if (!hitWall) {
+      this.dropShot(shot);
+      return;
+    }
+    const v = shot.body!.velocity;
+    this.impactFeedback(shot.x, shot.y, v.x, v.y);
+    this.tweens.killTweensOf(shot);
+    this.retireShot(shot);
   }
 
   private updateLights(time: number): void {

@@ -146,7 +146,21 @@ export function makePlaceholderArt(scene: Phaser.Scene): void {
     g.fillStyle(0xffffff).fillRect(2, 2, 4, 4);
     g.generateTexture('px-shot', 8, 8).clear();
     g.fillStyle(0xffffff).fillRect(0, 0, 2, 2);
-    g.generateTexture('px-spark', 2, 2).destroy();
+    g.generateTexture('px-spark', 2, 2).clear();
+    // Plasma bolt, pointing right (rotated to its velocity): cyan rim, mint
+    // body, white-hot core biased towards the nose.
+    g.fillStyle(0x1b8fb0).fillRect(2, 1, 10, 6).fillRect(1, 2, 12, 4);
+    g.fillStyle(0x7cf7d4).fillRect(3, 2, 9, 4).fillRect(2, 3, 11, 2);
+    g.fillStyle(0xffffff).fillRect(6, 3, 6, 2).fillRect(8, 2, 3, 4);
+    g.generateTexture('px-bolt', 14, 8).clear();
+    // Muzzle flash: a small four-point star.
+    g.fillStyle(0x7cf7d4).fillRect(5, 0, 1, 11).fillRect(0, 5, 11, 1);
+    g.fillStyle(0xb8fff0).fillRect(4, 3, 3, 5).fillRect(3, 4, 5, 3);
+    g.fillStyle(0xffffff).fillRect(4, 4, 3, 3);
+    g.generateTexture('px-flash', 11, 11).clear();
+    // Impact ring, one pixel thick.
+    g.lineStyle(1, 0x9ffcf0).strokeCircle(7, 7, 6);
+    g.generateTexture('px-ring', 15, 15).destroy();
   }
 }
 
