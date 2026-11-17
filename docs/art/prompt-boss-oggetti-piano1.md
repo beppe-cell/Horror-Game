@@ -5,7 +5,7 @@ Due generazioni: il boss del sito dello schianto e un foglio con i primi 10 ogge
 ## Come usarli
 
 1. Usa **una chat nuova per ogni foglio**.
-2. In ogni chat **allega il foglio modello dell'astronauta** (`art/raw/player/01-reference.jpeg`) e il **foglio degli oggetti del piano 1** (`art/raw/rooms/1-crash-props.jpeg`). Per il boss allega anche il **foglio dello strisciante** (`art/raw/enemies/1-crawler.png`): il boss è la sua madre.
+2. In ogni chat **allega il foglio modello dell'astronauta** (`art/raw/player/01-reference.jpeg`) e il **foglio degli oggetti del piano 1** (`art/raw/rooms/1-crash-props.jpeg`). Per il boss allega anche il **nuovo foglio dello strisciante** (`art/raw/enemies/1-crawler.png`): il boss è sua madre. Genera prima lo strisciante.
 3. Copia il prompt in inglese così com'è.
 4. **Carica** il risultato (PNG o JPEG) con questi nomi:
 
@@ -18,7 +18,7 @@ Due generazioni: il boss del sito dello schianto e un foglio con i primi 10 ogge
 
 ## 1. Boss: Madre della covata
 
-La regina delle larve, cresciuta dentro lo scafo della nave. È enorme, lenta e corazzata di rottami. Ha tre attacchi:
+La regina delle zecche aliene, cresciuta dentro lo scafo della nave. È enorme, lenta e corazzata di rottami, con un sacco di uova gigante. Ha tre attacchi:
 - **pioggia di spore:** un anello di spore attorno a sé;
 - **scavo:** sparisce sotto terra e riemerge sotto l'astronauta;
 - **covata:** depone 2-3 striscianti.
@@ -33,20 +33,20 @@ La regina delle larve, cresciuta dentro lo scafo della nave. È enorme, lenta e 
 | 4 | Covata: 3 frame. Poi morte: 3 frame |
 
 ```
-Use the attached images as references for pixel size, palette and style: the astronaut (scale and pixel size), the crash-site props (palette and mood) and the crawler larva (this boss is its mother). Do not copy them; draw a new creature.
+Use the attached images as references for pixel size, palette and style: the astronaut (scale and pixel size), the crash-site props (palette and mood) and the crawler tick (this boss is its mother). Do not copy them; draw a new creature.
 Pixel art BOSS sprite sheet for a top-down 3/4 view sci-fi horror roguelite.
 
-CREATURE: "Brood Mother", the queen of the alien larvae, grown huge inside the wreck of a crashed mining ship. A bloated segmented grub body about 80 pixels long and 56 pixels tall, more than twice the astronaut's height. The same sickly grey-green flesh as the small crawler larva, but armored: twisted hull plates, a cracked ship panel with an orange hazard stripe and a torn cable fused into her back like a shell. A huge round mouth ringed with rows of teeth at the front, many small black eyes above it, short thick legs along the belly. Translucent egg sacs on her flanks glow faintly yellow-green. Heavy, disgusting and threatening.
-PALETTE: flesh #a8b29a #7d8a72 #4f5a48, mouth inside #3a0f18 #8a2a3a, egg sacs #d8e04a #a0b030, hull plates #4f5762 #7d8799, hazard stripe #ff9a3c, slime highlights #d8e8c8, outline #0b0d14.
+CREATURE: "Brood Mother", the queen of the alien ticks (the attached crawler is one of her young), grown huge inside the wreck of a crashed mining ship. A bloated body about 80 pixels long and 56 pixels tall, more than twice the astronaut's height. Front: the same eyeless grey-violet chitin shell as the small tick, with huge vertical mandibles around a red mouth. Back: an enormous swollen translucent egg sac, pale yellow-green, full of dark eggs. Eight thick jointed legs, too short for her weight, dragging her forward. Twisted hull plates, a cracked ship panel with an orange hazard stripe and a torn cable are fused into her shell. Heavy, disgusting and threatening.
+PALETTE: chitin #5a5470 #7e7896 #a9a3bf, legs #2e2a3a #4a4560, egg sac #c8d08a #9aa860 with eggs #6a7a3a, glowing eggs #d8e04a, mouth #3a0f18 #8a2a3a, hull plates #4f5762 #7d8799, hazard stripe #ff9a3c, wet highlights #e8eef7, outline #0b0d14.
 
 TRUE pixel art: each frame is exactly 96x96 pixels, upscaled 4x with crisp, square, equal-size pixels. Keep the SAME pixel size as the attached astronaut: the boss is bigger because it has more pixels, not bigger pixels. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline. Flat neutral lighting, NO glow halo, NO ground shadow (the game adds lights and shadows).
 VIEW: side view facing RIGHT only, seen slightly from above (3/4 top-down). The body rests on the bottom of each cell, on the same baseline in every frame, centered horizontally.
 
 LAYOUT: exactly 6 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no numbers.
-Row 1, CRAWL loop, 6 frames: the huge body heaves forward in a slow wave from tail to head, the legs shuffle, the egg sacs wobble, the mouth breathes open and shut.
-Row 2, SPORE BURST attack, 6 frames: the body swells, the egg sacs bulge and brighten, she rears up with the mouth wide open, the sacs burst and spray a ring of yellow-green spores outward, she slumps back, back to rest.
+Row 1, CRAWL loop, 6 frames: the huge body heaves forward in a slow wave from tail to head, the legs drag, the egg sac wobbles, the mandibles twitch open and shut.
+Row 2, SPORE BURST attack, 6 frames: the body swells, the eggs in the sac bulge and glow, she rears up with the mouth wide open, the sac pores burst and spray a ring of yellow-green spores outward, she slumps back, back to rest.
 Row 3, BURROW, 6 frames: frames 1-3 she lowers her head and digs into the ground until only the hull plates on her back show, then only a mound of dirt; frames 4-6 the ground cracks open and she bursts up out of it with the mouth wide open, dirt flying.
-Row 4: frames 1-3 LAY BROOD (she arches, an egg sac swells and drops a wet egg behind her, the egg splits and a small crawler larva wriggles out); frames 4-6 DEATH (the egg sacs burst, grey-green goo sprays out, the body deflates and collapses under the hull plates, a big puddle of goo remains).
+Row 4: frames 1-3 LAY BROOD (she arches, the egg sac pulses and drops a wet egg behind her, the egg splits and a small crawler tick scuttles out); frames 4-6 DEATH (the egg sac bursts, yellow-green goo sprays out, the body deflates and collapses under the hull plates, a big puddle of goo remains).
 
 BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```

@@ -25,24 +25,26 @@ Tre nemici per il sito dello schianto, uno per generazione. Ogni foglio ha **3 r
 
 ---
 
-## 1. Strisciante (larva aliena)
+## 1. Strisciante (zecca aliena), versione 2
 
-Piccola, veloce, ti insegue strisciando. È il nemico base.
+Piccolo e veloce: corre a scatti sulle zampe e ti salta addosso. È il nemico base. Questa versione sostituisce la larva: è una zecca piatta e cieca, con zampe lunghe e articolate. Ha un addome molle e traslucido che brilla di uova e un muso di chitina con le mandibole aperte in verticale.
+
+Carica il risultato come `art/raw/enemies/1-crawler.png`. Prende il posto del vecchio `1-crawler.jpeg`.
 
 ```
-Use the attached images as references for pixel size, palette and style: the astronaut (scale and pixel size) and the crash-site props (palette and mood). Do not copy them; draw a new creature.
+Use the attached images as references for pixel size, palette and style: the astronaut (scale and pixel size) and the crash-site props (palette and mood). Do not copy them; draw a new creature. It must NOT look like a worm, a maggot or a larva.
 Pixel art ENEMY sprite sheet for a top-down 3/4 view sci-fi horror roguelite.
 
-CREATURE: "Crawler", an alien larva from the caves around a crashed mining ship. Pale sickly grey-green segmented body like a fat maggot, about 24 pixels long and 14 pixels tall, three dark slimy segments, a round mouth at the front ringed with tiny teeth, two small black eyes, short twitching bristles. Wet highlights on the back. Disgusting, not cute.
-PALETTE: body #a8b29a #7d8a72 #4f5a48, mouth inside #3a0f18 #8a2a3a, slime highlights #d8e8c8, outline #0b0d14.
+CREATURE: "Skitter", a blind alien tick that nests in the wreck of a crashed mining ship. A flat low body about 26 pixels long and 12 pixels tall including the legs. Front half: a hard grey-violet chitin shell, eyeless, with a pair of vertical mandibles that open sideways around a small red mouth. Back half: a soft swollen translucent abdomen, pale yellow-green, with darker eggs visible inside. Six long thin jointed legs, bent high above the body like a spider, with sharp tips. Fast, twitchy, unsettling. Not cute.
+PALETTE: chitin #5a5470 #7e7896 #a9a3bf, legs #2e2a3a #4a4560, abdomen #c8d08a #9aa860, eggs inside #6a7a3a, mouth #3a0f18 #8a2a3a, wet highlights #e8eef7, outline #0b0d14.
 
-TRUE pixel art: each frame is exactly 32x32 pixels, upscaled 8x with crisp, square, equal-size pixels. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline. Flat neutral lighting, NO glow, NO ground shadow (the game adds lights and shadows).
-VIEW: side view facing RIGHT only, seen slightly from above (3/4 top-down). The creature rests on the bottom of each cell, on the same baseline in every frame, centered horizontally.
+TRUE pixel art: each frame is exactly 32x32 pixels, upscaled 8x with crisp, square, equal-size pixels. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline. Flat neutral lighting, NO glow halo, NO ground shadow (the game adds lights and shadows).
+VIEW: side view facing RIGHT only, seen slightly from above (3/4 top-down). The leg tips rest on the bottom of each cell, on the same baseline in every frame, centered horizontally.
 
 LAYOUT: exactly 6 columns by 3 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no numbers.
-Row 1, CRAWL loop, 6 frames: the body contracts and stretches like a caterpillar wave from tail to head, the mouth opens and closes slightly.
-Row 2, BITE attack, 6 frames: rears up the front segment, mouth opens wide showing teeth, lunges forward, snaps shut, pulls back, back to rest.
-Row 3: frames 1-2 HURT (the whole body flashes almost white, then squashes flat); frames 3-6 DEATH (bursts open, green-grey goo splashes out, the deflated body shrivels, a small puddle of goo remains).
+Row 1, SKITTER loop, 6 frames: fast tripod gait, three legs up while three legs down, alternating; the body bobs by 1 pixel, the abdomen jiggles.
+Row 2, LEAP attack, 6 frames: crouches low with the legs splayed, the mandibles spread wide, it jumps forward with the legs stretched out in front, lands, snaps the mandibles shut, back to rest.
+Row 3: frames 1-2 HURT (the whole body flashes almost white, then the legs flinch inward); frames 3-6 DEATH (flips onto its back, the legs curl up and twitch, the abdomen bursts with yellow-green goo, a curled husk in a small puddle remains).
 
 BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
