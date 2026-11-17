@@ -1,33 +1,38 @@
 import Phaser from 'phaser';
 import PlayScene from './scenes/PlayScene';
+import HudScene from './scenes/HudScene';
+import { pickQuality } from './rules/view';
 
-const seedFromUrl = new URLSearchParams(window.location.search).get('seed') ?? undefined;
+const params = new URLSearchParams(window.location.search);
+const seedFromUrl = params.get('seed') ?? undefined;
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
-  width: 1920,
-  height: 1080,
   backgroundColor: '#07070c',
-  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  // The canvas always fills the screen, in any orientation; the play scene
+  // frames the room itself (see rules/view.ts).
+  scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
+  pixelArt: true,
+  render: { maxLights: 16 },
   input: { gamepad: true },
   physics: {
     default: 'arcade',
-    arcade: { gravity: { x: 0, y: 0 }, debug: import.meta.env.DEV },
+    arcade: { gravity: { x: 0, y: 0 }, debug: import.meta.env.DEV && params.has('debug') },
   },
   scene: [],
 });
 
-game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase() });
+const quality = pickQuality({ desktop: game.device.os.desktop, override: params.get('quality') });
+game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase(), quality });
+game.scene.add('hud', HudScene, false);
 
-// On touch devices, the first tap asks for fullscreen and a landscape lock.
-// Both can be refused (iPhone Safari has no fullscreen API), which is fine.
+// On touch devices, the first tap asks for fullscreen. It can be refused
+// (iPhone Safari has no fullscreen API), which is fine.
 window.addEventListener(
   'touchend',
   () => {
     if (!game.scale.isFullscreen && game.device.fullscreen.available) game.scale.startFullscreen();
-    const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-    orientation.lock?.('landscape').catch(() => {});
   },
   { once: true },
 );

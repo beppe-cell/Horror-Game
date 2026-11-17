@@ -6,14 +6,15 @@ Roguelite d'azione twin-stick nel browser (Phaser 4 + TypeScript). Design comple
 ## Giocare
 
 - Versione di test: GitHub Pages del repo (aggiornata a ogni merge su `main`).
-- `?seed=ABCD1234` nell'URL ripete la stessa run.
 
 | Azione | Tastiera | Gamepad | Touch |
 |---|---|---|---|
 | Muoversi | WASD | Stick sinistro | Joystick a sinistra |
 | Sparare | Frecce | Stick destro | Joystick a destra |
 
-Su telefono il gioco va tenuto in orizzontale.
+Su telefono funziona sia in orizzontale sia in verticale.
+
+Parametri utili nell'URL: `?seed=ABCD1234` ripete la stessa stanza, `?quality=high` o `?quality=low` forza la qualità degli effetti.
 
 ## Sviluppo
 

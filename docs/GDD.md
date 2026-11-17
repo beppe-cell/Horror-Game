@@ -9,7 +9,7 @@ oggetti originali. Un astronauta naufragato su un pianeta abbandonato scende att
 struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 - **Obiettivo:** gioco piccolo e completo da pubblicare, in 2-6 mesi.
-- **Piattaforma:** browser, 2D, su desktop e su mobile (telefono in orizzontale, controlli touch).
+- **Piattaforma:** browser, 2D, su desktop e su mobile, sia in orizzontale sia in verticale, sempre a tutto schermo.
 - **Distribuzione:** itch.io, gratis o "paga quanto vuoi". La pagina dichiara l'uso di grafica generata con AI.
 - **Lingue:** italiano e inglese.
 
@@ -24,7 +24,10 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 - Phaser 4, TypeScript (strict), Vite.
 - Test: vitest per la logica (generatore, oggetti, statistiche); Playwright come smoke test (il gioco si avvia senza errori).
-- Risoluzione interna 1920×1080, scalata alla finestra mantenendo le proporzioni.
+- Il canvas riempie sempre tutto lo schermo, senza bande nere:
+  - **orizzontale:** la stanza è sempre intera e centrata; lo spazio in più si riempie con la roccia della caverna;
+  - **verticale (es. 9:16):** la telecamera segue il giocatore, con circa 8,5 tile in larghezza e l'intera altezza della stanza.
+- Qualità degli effetti automatica: alta su desktop, bassa su telefoni e tablet. `?quality=high` o `?quality=low` nell'URL la forza.
 - Salvataggio in `localStorage`: meta-progressione, più "salva ed esci" a metà run tra una stanza e l'altra.
 
 ## 4. Struttura della run
@@ -54,7 +57,7 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 - **Controlli:**
   - Tastiera: WASD per muoversi, frecce per sparare in 4 direzioni.
   - Gamepad: twin-stick.
-  - Touch: due joystick virtuali che compaiono dove appoggi il dito. Metà sinistra dello schermo per muoversi, metà destra per sparare (direzione arrotondata alla più vicina delle 4). Solo orizzontale: in verticale il gioco chiede di ruotare il telefono.
+  - Touch: due joystick virtuali che compaiono dove appoggi il dito. Metà sinistra dello schermo per muoversi, metà destra per sparare (direzione arrotondata alla più vicina delle 4).
 - **Salute:** celle di integrità della tuta, più celle di scudo temporanee raccolte nei livelli.
 - **Statistiche:** danno, cadenza di fuoco, gittata, velocità dei colpi, velocità di movimento, fortuna. Gli oggetti le modificano tramite un sistema di modificatori.
 
@@ -86,23 +89,34 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 ## 9. Grafica
 
-- **Stile:** cartoon cel-shaded, contorno nero spesso, colori saturi, accenti bioluminescenti su fondi scuri.
+- **Stile:** pixel art con effetti visivi realistici. Il contrasto tra pixel netti e luce, acqua e atmosfera morbide è l'identità visiva del gioco.
 - **Prospettiva:** top-down 3/4.
-- **Dimensioni:** giocatore circa 128 px, nemici 96-256 px, boss fino a circa 512 px. Le sorgenti si generano ad almeno il doppio.
-- **Animazioni:** frame per frame, cicli da 8 o più frame.
+- **Dimensioni:** tile 32×32 px. Giocatore circa 14×26 px dentro un riquadro 32×32.
+- **Animazioni:** 6 frame per ciclo.
   - Giocatore e personaggi: 3 direzioni (giù, su, lato); la sinistra è il lato specchiato.
   - Nemici e boss: 1 vista specchiata.
 
+### Effetti
+
+| Effetto | Qualità alta | Qualità bassa |
+|---|---|---|
+| Luci dinamiche (lampada della tuta, colpi, cristalli bioluminescenti) con mappe di rilievo calcolate dagli sprite | Sì | Sì |
+| Acqua: rifrazione del fondo, onde, caustiche, increspature da passi e colpi, riflessi delle luci, schiuma a riva | Completa | Onde semplificate |
+| Bloom | Sì | No |
+| Nebbia a strati | Sì | No |
+| Particelle (scintille, pulviscolo) | Tutte | Solo scintille |
+
+Il piano 4 (laboratorio allagato) è la vetrina dell'acqua.
+
 ### Pipeline
 
-1. L'utente genera le immagini con Gemini (piano gratuito), seguendo la guida di stile e i prompt preparati da Claude.
+1. L'utente genera le immagini con Gemini (piano gratuito), seguendo la guida di stile e i prompt preparati da Claude. In alternativa, o in aggiunta, si usano pacchetti di pixel art CC0.
 2. Prompt con sfondo a tinta unita magenta `#FF00FF`.
 3. L'utente carica i file su GitHub in `art/raw/<nome-entità>/`.
-4. Uno script rimuove lo sfondo (chroma key), ritaglia, scala e divide i frame.
+4. Uno script ripulisce la pixel art generata: riporta i pixel su una griglia vera, riduce a una palette fissa, rimuove lo sfondo e divide i frame.
+5. Il gioco calcola da solo le mappe di rilievo per le luci.
 
-**Pilota all'inizio dell'M3:** si genera solo lo sprite sheet del giocatore. Se ci sono watermark
-visibili, limiti di generazione troppo bassi o frame troppo incoerenti, si scende a 4 frame oppure
-si rivede lo stile.
+**Pilota all'inizio dell'M3:** si genera solo lo sprite sheet del giocatore. Se la pixel art di Gemini non regge la pulizia, si passa ai pacchetti CC0.
 
 ## 10. Audio
 
@@ -116,5 +130,5 @@ si rivede lo stile.
 |---|---|
 | **M1** (circa 3-4 settimane, grafica segnaposto) | Movimento, sparo, un piano procedurale, 3 nemici, 1 boss, 10 oggetti, test automatici |
 | **M2** | Tutti i 5 piani, i 15 nemici, i 7 boss e circa 40 oggetti, sempre con segnaposto |
-| **M3** | Pilota della grafica, guida di stile, prompt per Gemini, sostituzione dei segnaposto, audio |
+| **M3** | Pilota della grafica, guida di stile, prompt per Gemini, sostituzione dei segnaposto, audio. Il motore degli effetti (luci, acqua, bloom, nebbia) è già fatto nell'M1. |
 | **M4** | Meta-progressione, personaggi sbloccabili, localizzazione, rifinitura, rilascio su itch.io |
