@@ -81,6 +81,24 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 - 15 tipi di nemici, 3 per piano.
 - 7 boss: uno per piano, più un'alternativa casuale ai piani 1 e 2.
+- 3-5 nemici per stanza, fermi per 1 secondo all'ingresso (si "svegliano"), mai a meno di 4 tile dal punto di partenza del giocatore.
+
+### Piano 1 (sito dello schianto)
+
+| Nemico | Vita | Comportamento | Danno a contatto |
+|---|---|---|---|
+| Strisciante (larva aliena) | 7 | Insegue strisciando con un ondeggiamento laterale | ½ cella |
+| Sputatore (fungo-creatura) | 10 | Fermo; ogni 2,2 s si gonfia (avviso) e spara una spora verso il giocatore | ½ cella (anche la spora) |
+| Ex-minatore infetto | 22 | Lento; se il giocatore è entro 2,6 tile si blocca e trema in rosso (avviso), poi carica a 4,2 tile/s; dopo la carica si riprende per 1,4 s | 1 cella |
+
+Logica in `src/rules/enemies.ts` (testata), gestione nel gioco in `src/scenes/Enemies.ts`. I colpi colpiscono un nemico se attraversano la sua figura disegnata o se la loro ombra cade sulla sua base (così si colpiscono anche i nemici bassi). Colpito: lampo bianco, piccolo rinculo. Morto: schizzi, scossa, schiacciamento e dissolvenza. Grafica segnaposto finché non arrivano i fogli di Gemini (`docs/art/prompt-nemici-piano1.md`).
+
+### Salute e morte
+
+- La tuta parte con 3 celle (6 mezze celle); gli scudi temporanei assorbono i danni per primi (`src/rules/health.ts`, testato).
+- Dopo un colpo: 1 secondo di invulnerabilità (l'astronauta lampeggia), scossa, spinta lontano dalla fonte, animazione "colpito".
+- A zero: animazione di morte, poi "Tuta compromessa" e si ricomincia con R o toccando lo schermo (nuova run, nuovo seed).
+- HUD in alto a sinistra: celle piene, mezze e vuote; gli scudi in bianco. Messaggio "Stanza ripulita" quando muore l'ultimo nemico.
 
 ## 8. Meta-progressione
 
