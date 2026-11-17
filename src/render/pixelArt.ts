@@ -138,6 +138,7 @@ export function makePlaceholderArt(scene: Phaser.Scene): void {
   // Shadows are plain (unlit) black shapes with crisp pixel edges.
   makeShadow(scene, 'px-shadow', 30, 9, 0.78, 0.46);
   makeShadow(scene, 'px-shadow-cast', 28, 11, 0.72, 0.42);
+  makeShadow(scene, 'px-shadow-shot', 9, 4, 0.6, 0.35);
 
   if (!scene.textures.exists('px-shot')) {
     const g = scene.add.graphics();

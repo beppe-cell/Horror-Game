@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
-import { BASE_STATS, Stats, computeStats, fireCooldownMs, shotLifetimeMs } from '../rules/stats';
+import { BASE_STATS, Stats, computeStats, fireCooldownMs } from '../rules/stats';
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
 import { Quality, frameView } from '../rules/view';
@@ -25,6 +25,8 @@ const FRAME_H = ROOM_H + WALL * 2;
 
 /** Share of the player's velocity added to a new shot. */
 const SHOT_INHERIT = 0.3;
+/** How far above the floor shots fly (blaster at chest height), in pixels. */
+const SHOT_HEIGHT = 16;
 /** Row of the boot soles in the 48×48 player frames (see tools/clean_sprites.py). */
 const PLAYER_SOLE_ROW = 46;
 /** Shots that carry their own light; extra shots fly unlit. */
@@ -200,7 +202,7 @@ export default class PlayScene extends Phaser.Scene {
     this.updateMovement(time);
     this.updateShooting(time);
     this.updateAnimation();
-    this.updateShots(time);
+    this.updateShots();
     this.updateLights(time);
     this.hud()?.setDebug(
       `seed ${this.seed}  ${this.quality}  fps ${Math.round(this.game.loop.actualFps)}  ` +
@@ -294,23 +296,48 @@ export default class PlayScene extends Phaser.Scene {
     shot.body!.setSize(6, 6);
     const speed = this.px(this.stats.shotSpeed);
     shot.setVelocity(d.x * speed + body.velocity.x * SHOT_INHERIT, d.y * speed + body.velocity.y * SHOT_INHERIT);
-    shot.setData('expiresAt', time + shotLifetimeMs(this.stats));
+    // Range is a distance, not a time: a slow frame rate must not shorten it.
+    shot.setData('startX', shot.x).setData('startY', shot.y).setData('range', this.px(this.stats.range));
+    // Shadow on the floor straight below the shot, at the shooter's feet level.
+    let shadow = shot.getData('shadow') as Phaser.GameObjects.Image | undefined;
+    if (!shadow) {
+      shadow = this.add.image(0, 0, 'px-shadow-shot').setDepth(7);
+      shot.setData('shadow', shadow);
+    }
+    shadow.setVisible(true);
+    this.placeShotShadow(shot);
     shot.setDepth(12).setBlendMode(Phaser.BlendModes.ADD);
     this.nextShotAt = time + fireCooldownMs(this.stats);
     this.shotsFired++;
   }
 
-  private updateShots(time: number): void {
+  private updateShots(): void {
     for (const child of this.shots.getChildren()) {
       const shot = child as Phaser.Physics.Arcade.Image;
-      if (shot.active && time >= (shot.getData('expiresAt') as number)) this.killShot(shot, false);
+      if (shot.active) this.placeShotShadow(shot);
+      if (!shot.active) continue;
+      const travelled = Math.hypot(shot.x - (shot.getData('startX') as number), shot.y - (shot.getData('startY') as number));
+      if (travelled >= (shot.getData('range') as number)) this.killShot(shot, false);
     }
+  }
+
+  /** Keeps a shot's floor shadow under it; fainter over water, where the surface scatters light. */
+  private placeShotShadow(shot: Phaser.Physics.Arcade.Image): void {
+    const shadow = shot.getData('shadow') as Phaser.GameObjects.Image | undefined;
+    if (!shadow) return;
+    const gx = Math.round(shot.x);
+    const gy = Math.round(shot.y + SHOT_HEIGHT);
+    const overWater = this.water.contains(this.room.cells, gx, gy, TILE);
+    shadow.setPosition(gx, gy).setAlpha(overWater ? 0.35 : 1);
   }
 
   private killShot(shot: Phaser.Physics.Arcade.Image, hitWall: boolean): void {
     if (!shot.active) return;
-    if (this.water.contains(this.room.cells, shot.x, shot.y, TILE)) this.water.ripple(shot.x, shot.y, 1.2);
+    // A shot that runs out of range drops where its shadow is.
+    const groundY = shot.y + SHOT_HEIGHT;
+    if (!hitWall && this.water.contains(this.room.cells, shot.x, groundY, TILE)) this.water.ripple(shot.x, groundY, 1.2);
     else this.sparks.explode(hitWall ? 10 : 5, shot.x, shot.y);
+    (shot.getData('shadow') as Phaser.GameObjects.Image | undefined)?.setVisible(false);
     shot.disableBody(true, true);
   }
 
