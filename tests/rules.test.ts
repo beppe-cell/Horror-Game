@@ -7,6 +7,7 @@ import { normalMapFromRgba } from '../src/rules/normalmap';
 import { frameView, pickQuality } from '../src/rules/view';
 import { actionFrom, animKey, facingFrom } from '../src/rules/facing';
 import { waterMask } from '../src/rules/waterMask';
+import { castShadows } from '../src/rules/shadow';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -191,5 +192,41 @@ describe('water mask', () => {
     expect(at(m.width - 2, 20)).toBeCloseTo(0, 2); // far dry side
     expect(at(32, 20)).toBeGreaterThan(0.3); // shoreline between cell 3 and 4
     expect(at(32, 20)).toBeLessThan(0.7);
+  });
+});
+
+describe('cast shadows', () => {
+  const lamp = (x: number, y: number) => ({ x, y, radius: 120, intensity: 1 });
+
+  it('points away from the light', () => {
+    const [s] = castShadows(100, 100, [lamp(60, 100)]);
+    expect(s.angle).toBeCloseTo(0); // light on the left, shadow to the right
+    expect(s.alpha).toBeGreaterThan(0);
+  });
+
+  it('is longer and fainter when the light is farther away', () => {
+    const [near] = castShadows(100, 100, [lamp(100, 70)]);
+    const [far] = castShadows(100, 100, [lamp(100, 10)]);
+    expect(far.length).toBeGreaterThan(near.length);
+    expect(far.alpha).toBeLessThan(near.alpha);
+    expect(near.angle).toBeCloseTo(Math.PI / 2); // light above, shadow down the screen
+  });
+
+  it('casts one shadow per light, strongest first, up to the limit', () => {
+    const shadows = castShadows(100, 100, [lamp(40, 100), lamp(100, 80), lamp(150, 100)], 40, 2);
+    expect(shadows).toHaveLength(2);
+    expect(shadows[0].angle).toBeCloseTo(Math.PI / 2); // nearest light (above) first
+    expect(Math.abs(shadows[1].angle)).toBeCloseTo(Math.PI); // then the one on the right; the far left one is dropped
+  });
+
+  it('makes taller objects cast longer shadows', () => {
+    const [short] = castShadows(100, 100, [lamp(100, 30)], 20);
+    const [tall] = castShadows(100, 100, [lamp(100, 30)], 40);
+    expect(tall.length).toBeGreaterThan(short.length);
+  });
+
+  it('casts nothing out of range or from a light on the object', () => {
+    expect(castShadows(100, 100, [lamp(400, 100)])).toEqual([]);
+    expect(castShadows(100, 100, [lamp(101, 96)])).toEqual([]);
   });
 });

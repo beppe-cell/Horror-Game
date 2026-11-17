@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
-import { BASE_STATS, Stats, computeStats, fireCooldownMs, shotLifetimeMs } from '../rules/stats';
+import { BASE_STATS, Stats, computeStats, fireCooldownMs } from '../rules/stats';
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
+import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
 import { TILE, WALL_TILES, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
@@ -24,6 +25,34 @@ const FRAME_H = ROOM_H + WALL * 2;
 
 /** Share of the player's velocity added to a new shot. */
 const SHOT_INHERIT = 0.3;
+/** How far above the floor shots fly (blaster at chest height), in pixels. */
+const SHOT_HEIGHT = 16;
+/** Row of the boot soles in the 48×48 player frames (see tools/clean_sprites.py). */
+const PLAYER_SOLE_ROW = 46;
+/** Reach of a shot's light, in pixels. */
+const SHOT_LIGHT_RADIUS = 90;
+/** Size of the 'px-shadow-cast' texture (see render/pixelArt.ts). */
+const CAST_TEXTURE_W = 28;
+const CAST_TEXTURE_H = 11;
+/** Shadows each object can cast at once (one per nearby light). */
+const SHADOWS_PER_OBJECT = 2;
+
+/**
+ * Something standing on the floor: a dark contact patch under it, so it
+ * does not float, and one cast shadow per nearby light.
+ */
+interface ShadowCaster {
+  obj: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
+  /** Frame row where the object touches the floor. */
+  baseRow: number;
+  /** Height in pixels, for shadow length. */
+  height: number;
+  /** Width in pixels: the shadow is as wide as the object. */
+  width: number;
+  contact: Phaser.GameObjects.Image;
+  casts: Phaser.GameObjects.Image[];
+}
+
 /** Shots that carry their own light; extra shots fly unlit. */
 const LIT_SHOTS = 6;
 
@@ -60,6 +89,8 @@ export default class PlayScene extends Phaser.Scene {
   private shotLights: Phaser.GameObjects.Light[] = [];
   private crystalLights: { light: Phaser.GameObjects.Light; base: number; phase: number }[] = [];
   private sparks!: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** Astronaut, rocks and crystals, with their shadows. */
+  private casters: ShadowCaster[] = [];
   /** Objects mirrored in the water (player first, then rocks and crystals). */
   private reflectors: Reflector[] = [];
 
@@ -77,6 +108,7 @@ export default class PlayScene extends Phaser.Scene {
     this.shotLights = [];
     this.crystalLights = [];
     this.reflectors = [];
+    this.casters = [];
     this.facing = 'down';
   }
 
@@ -116,12 +148,15 @@ export default class PlayScene extends Phaser.Scene {
     // overlap the wall above like in a 3/4 view.
     this.player.body!.setSize(14, 8).setOffset(17, 38);
     this.player.play('player-idle-down');
-    this.reflectors.unshift({ obj: this.player, baseRow: 46 });
+    this.reflectors.unshift({ obj: this.player, baseRow: PLAYER_SOLE_ROW });
+    // The contact patch sits just behind the player, so the boots overlap
+    // its top half: no gap, no floating.
+    this.addCaster(this.player, PLAYER_SOLE_ROW, PLAYER_HEIGHT, 18, 1, 9);
     this.playerLight = this.lights.addLight(this.player.x, this.player.y, 150, 0xcfeeff, 1.2);
 
     this.shots = this.physics.add.group({ defaultKey: 'px-shot', maxSize: 40 });
     for (let i = 0; i < LIT_SHOTS; i++) {
-      this.shotLights.push(this.lights.addLight(0, 0, 70, 0x7cf7d4, 0).setVisible(false));
+      this.shotLights.push(this.lights.addLight(0, 0, SHOT_LIGHT_RADIUS, 0x7cf7d4, 0).setVisible(false));
     }
     this.physics.add.collider(this.player, this.walls);
     this.physics.add.overlap(this.shots, this.walls, (shot) => this.killShot(shot as Phaser.Physics.Arcade.Image, true));
@@ -189,7 +224,7 @@ export default class PlayScene extends Phaser.Scene {
     this.updateMovement(time);
     this.updateShooting(time);
     this.updateAnimation();
-    this.updateShots(time);
+    this.updateShots();
     this.updateLights(time);
     this.hud()?.setDebug(
       `seed ${this.seed}  ${this.quality}  fps ${Math.round(this.game.loop.actualFps)}  ` +
@@ -283,23 +318,48 @@ export default class PlayScene extends Phaser.Scene {
     shot.body!.setSize(6, 6);
     const speed = this.px(this.stats.shotSpeed);
     shot.setVelocity(d.x * speed + body.velocity.x * SHOT_INHERIT, d.y * speed + body.velocity.y * SHOT_INHERIT);
-    shot.setData('expiresAt', time + shotLifetimeMs(this.stats));
+    // Range is a distance, not a time: a slow frame rate must not shorten it.
+    shot.setData('startX', shot.x).setData('startY', shot.y).setData('range', this.px(this.stats.range));
+    // Shadow on the floor straight below the shot, at the shooter's feet level.
+    let shadow = shot.getData('shadow') as Phaser.GameObjects.Image | undefined;
+    if (!shadow) {
+      shadow = this.add.image(0, 0, 'px-shadow-shot').setDepth(7);
+      shot.setData('shadow', shadow);
+    }
+    shadow.setVisible(true);
+    this.placeShotShadow(shot);
     shot.setDepth(12).setBlendMode(Phaser.BlendModes.ADD);
     this.nextShotAt = time + fireCooldownMs(this.stats);
     this.shotsFired++;
   }
 
-  private updateShots(time: number): void {
+  private updateShots(): void {
     for (const child of this.shots.getChildren()) {
       const shot = child as Phaser.Physics.Arcade.Image;
-      if (shot.active && time >= (shot.getData('expiresAt') as number)) this.killShot(shot, false);
+      if (shot.active) this.placeShotShadow(shot);
+      if (!shot.active) continue;
+      const travelled = Math.hypot(shot.x - (shot.getData('startX') as number), shot.y - (shot.getData('startY') as number));
+      if (travelled >= (shot.getData('range') as number)) this.killShot(shot, false);
     }
+  }
+
+  /** Keeps a shot's floor shadow under it; fainter over water, where the surface scatters light. */
+  private placeShotShadow(shot: Phaser.Physics.Arcade.Image): void {
+    const shadow = shot.getData('shadow') as Phaser.GameObjects.Image | undefined;
+    if (!shadow) return;
+    const gx = Math.round(shot.x);
+    const gy = Math.round(shot.y + SHOT_HEIGHT);
+    const overWater = this.water.contains(this.room.cells, gx, gy, TILE);
+    shadow.setPosition(gx, gy).setAlpha(overWater ? 0.35 : 1);
   }
 
   private killShot(shot: Phaser.Physics.Arcade.Image, hitWall: boolean): void {
     if (!shot.active) return;
-    if (this.water.contains(this.room.cells, shot.x, shot.y, TILE)) this.water.ripple(shot.x, shot.y, 1.2);
+    // A shot that runs out of range drops where its shadow is.
+    const groundY = shot.y + SHOT_HEIGHT;
+    if (!hitWall && this.water.contains(this.room.cells, shot.x, groundY, TILE)) this.water.ripple(shot.x, groundY, 1.2);
     else this.sparks.explode(hitWall ? 10 : 5, shot.x, shot.y);
+    (shot.getData('shadow') as Phaser.GameObjects.Image | undefined)?.setVisible(false);
     shot.disableBody(true, true);
   }
 
@@ -321,12 +381,67 @@ export default class PlayScene extends Phaser.Scene {
     const waterLights: WaterLight[] = [
       { x: this.playerLight.x, y: this.playerLight.y, radius: 150, intensity: this.playerLight.intensity, color: 0xcfeeff },
     ];
-    for (const shot of active.slice(0, 2)) waterLights.push({ x: shot.x, y: shot.y, radius: 70, intensity: 1.1, color: 0x7cf7d4 });
+    for (const shot of active.slice(0, 2)) {
+      waterLights.push({ x: shot.x, y: shot.y, radius: SHOT_LIGHT_RADIUS, intensity: 1.1, color: 0x7cf7d4 });
+    }
     for (const c of this.crystalLights) {
       waterLights.push({ x: c.light.x, y: c.light.y, radius: 110, intensity: c.light.intensity, color: 0x4dffb0 });
     }
     this.water.setLights(waterLights);
+    // Every lit shot and every crystal casts shadows; the suit lamp does not.
+    const shadowLights: ShadowLight[] = active
+      .slice(0, LIT_SHOTS)
+      .map((shot) => ({ x: shot.x, y: shot.y, radius: SHOT_LIGHT_RADIUS, intensity: 1.1 }));
+    for (const c of this.crystalLights) shadowLights.push({ x: c.light.x, y: c.light.y, radius: 110, intensity: c.light.intensity });
+    this.updateShadows(shadowLights);
     this.water.updateReflections(this.reflectors, (x, y) => this.brightnessAt(waterLights, x, y));
+  }
+
+  /** Adds the contact patch and the pooled cast shadows for one object. */
+  private addCaster(
+    obj: ShadowCaster['obj'],
+    baseRow: number,
+    height: number,
+    width: number,
+    contactScale: number,
+    contactDepth: number,
+  ): void {
+    const contact = this.add.image(0, 0, 'px-shadow').setDepth(contactDepth).setScale(contactScale, Math.min(1, contactScale + 0.1));
+    // Cast shadows lie flat on the floor, under every standing object.
+    const casts = Array.from({ length: SHADOWS_PER_OBJECT }, () =>
+      this.add.image(0, 0, 'px-shadow-cast').setOrigin(0.12, 0.5).setDepth(3).setVisible(false),
+    );
+    this.casters.push({ obj, baseRow, height, width, contact, casts });
+  }
+
+  /**
+   * Moves every contact patch under its object and points each cast shadow
+   * away from one of the nearby lights, so a passing shot sweeps the
+   * shadows of the astronaut and the rocks around. In water everything is
+   * fainter: the surface scatters the light.
+   */
+  private updateShadows(lights: ShadowLight[]): void {
+    const dying = this.player.anims.currentAnim?.key === 'player-death';
+    for (const caster of this.casters) {
+      const { obj, baseRow, height, width, contact, casts } = caster;
+      const hidden = !obj.visible || (obj === this.player && dying);
+      const baseX = obj.x;
+      const baseY = obj.y - obj.displayOriginY + baseRow;
+      const fade = this.water.contains(this.room.cells, baseX, baseY, TILE) ? 0.4 : 1;
+      contact.setPosition(Math.round(baseX), Math.round(baseY)).setVisible(!hidden).setAlpha(fade);
+      const shadows = hidden ? [] : castShadows(baseX, baseY, lights, height, SHADOWS_PER_OBJECT);
+      casts.forEach((img, i) => {
+        const sh = shadows[i];
+        img.setVisible(!!sh);
+        if (!sh) return;
+        img
+          .setPosition(Math.round(baseX), Math.round(baseY - 1))
+          .setRotation(sh.angle)
+          // Texture is 28×11 with its start at 12%: stretch to the length, widen to the object.
+          .setScale(sh.length / (CAST_TEXTURE_W * 0.88), width / CAST_TEXTURE_H)
+          .setAlpha(sh.alpha * fade);
+      });
+    }
   }
 
   /** Rough light level at a point, matching the scene lights, for unlit reflections. */
@@ -358,6 +473,7 @@ export default class PlayScene extends Phaser.Scene {
         if (cell === 'rock') {
           const rock = this.add.image(x, y, 'px-rock').setLighting(true).setDepth(5);
           this.reflectors.push({ obj: rock, baseRow: 29 });
+          this.addCaster(rock, 29, 24, 24, 0.85, 4.9);
           this.walls.add(rock);
           (rock.body as Phaser.Physics.Arcade.StaticBody).setSize(26, 22).setOffset(3, 7);
         } else if (cell === 'floor' && (r === 0 || r === ROOM_ROWS - 1 || c === 0 || c === ROOM_COLS - 1)) {
@@ -373,6 +489,7 @@ export default class PlayScene extends Phaser.Scene {
       const y = ROOM_Y + spot.r * TILE + TILE / 2;
       const crystal = this.add.image(x, y, 'px-crystal').setLighting(true).setDepth(4);
       this.reflectors.push({ obj: crystal, baseRow: 22 });
+      this.addCaster(crystal, 22, 22, 12, 0.5, 3.9);
       const base = 0.9;
       this.crystalLights.push({ light: this.lights.addLight(x, y - 4, 110, 0x4dffb0, base), base, phase: rng.next() * 6 });
     }

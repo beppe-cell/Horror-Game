@@ -135,6 +135,11 @@ export function makePlaceholderArt(scene: Phaser.Scene): void {
     px(ctx, PAL.crystalLight, 12, 10, 1, 4);
   });
 
+  // Shadows are plain (unlit) black shapes with crisp pixel edges.
+  makeShadow(scene, 'px-shadow', 30, 9, 0.78, 0.46);
+  makeShadow(scene, 'px-shadow-cast', 28, 11, 0.72, 0.42);
+  makeShadow(scene, 'px-shadow-shot', 9, 4, 0.6, 0.35);
+
   if (!scene.textures.exists('px-shot')) {
     const g = scene.add.graphics();
     g.fillStyle(0x7cf7d4).fillRect(1, 1, 6, 6);
@@ -207,4 +212,25 @@ export function makeRoomWalls(
       }
     }
   });
+}
+
+/**
+ * Pixel ellipse shadow: a darker core and a lighter rim, alpha baked in, so
+ * it reads as soft while keeping hard pixel edges.
+ */
+function makeShadow(scene: Phaser.Scene, key: string, w: number, h: number, core: number, rim: number): void {
+  if (scene.textures.exists(key)) return;
+  const tex = scene.textures.createCanvas(key, w, h)!;
+  const ctx = tex.context;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = (x + 0.5 - w / 2) / (w / 2);
+      const dy = (y + 0.5 - h / 2) / (h / 2);
+      const d = dx * dx + dy * dy;
+      if (d > 1) continue;
+      ctx.fillStyle = `rgba(0, 0, 0, ${d < 0.45 ? core : rim})`;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  tex.refresh();
 }
