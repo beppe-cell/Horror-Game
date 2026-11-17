@@ -2,14 +2,15 @@ import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
 import { BASE_STATS, Stats, computeStats, fireCooldownMs } from '../rules/stats';
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
-import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
+import { ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
+import { FloorLayout, FloorRoom, OPPOSITE, SIDE_DOOR, Side, doorSides, generateFloor, neighbour } from '../rules/floor';
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
 import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
 import { CameraShake } from '../rules/shake';
 import { GlowKind, glowIntensity } from '../rules/glow';
 import { TILE, WALL_TILES, makePlaceholderArt } from '../render/pixelArt';
-import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propAnimKey, propKey } from '../render/biome';
+import { CRASH_SITE, doorAnimKey, hatchKey, paintFloor, paintWalls, preloadBiome, prepareBiome, propAnimKey, propKey } from '../render/biome';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
@@ -82,8 +83,23 @@ const SHOOT_CODES: Record<string, Dir4> = {
   ArrowRight: 'right',
 };
 
+/** What carries over from room to room during one run. */
+export interface RunState {
+  seed: string;
+  /** Id of the room the player is in. */
+  room: number;
+  /** Side of this room the player came in through. */
+  from?: Side;
+  health: Health;
+  /** Rooms whose enemies are all dead. */
+  cleared: number[];
+  visited: number[];
+}
+
 export interface PlayData {
   seed?: string;
+  /** Set when walking into another room of the same run. */
+  run?: RunState;
   quality?: Quality;
   /** Screen shake strength, 0 (off) to 1. */
   shake?: number;
@@ -129,6 +145,12 @@ export default class PlayScene extends Phaser.Scene {
   /** Objects mirrored in the water (player first, then rocks and crystals). */
   private reflectors: Reflector[] = [];
   health: Health = newHealth(START_CELLS);
+  run!: RunState;
+  floor!: FloorLayout;
+  here!: FloorRoom;
+  /** Doors of this room: the closed-door image and the blocker that stops the player. */
+  private doors: { side: Side; image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite; blocker?: Phaser.GameObjects.Zone }[] = [];
+  private leaving = false;
   dead = false;
   enemies!: EnemyManager;
   /** Free floor cells left after props are placed, for enemies to start on. */
@@ -146,7 +168,10 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   init(data: PlayData): void {
-    this.seed = data.seed ?? newSeedString();
+    this.seed = data.run?.seed ?? data.seed ?? newSeedString();
+    this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [] };
+    this.doors = [];
+    this.leaving = false;
     this.quality = data.quality ?? 'high';
     this.shakeStrength = data.shake ?? 1;
     this.impactLights = [];
@@ -160,7 +185,7 @@ export default class PlayScene extends Phaser.Scene {
     this.reflectors = [];
     this.casters = [];
     this.facing = 'down';
-    this.health = newHealth(START_CELLS);
+    this.health = this.run.health;
     this.dead = false;
     this.spawnCells = [];
     this.hurtUntil = 0;
@@ -183,9 +208,14 @@ export default class PlayScene extends Phaser.Scene {
 
   create(): void {
     const high = this.quality === 'high';
-    const rng = new Rng(seedFromString(this.seed));
+    this.floor = generateFloor(new Rng(seedFromString(this.seed)));
+    this.here = this.floor.rooms[this.run.room];
+    if (!this.run.visited.includes(this.here.id)) this.run.visited.push(this.here.id);
+    const sides = doorSides(this.floor, this.here);
+    // Each room has its own seed, so walking back into it rebuilds the same room.
+    const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}`));
     // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, up to two small props.
-    this.room = generateRoom(rng, DOOR_CELLS, { rockCount: rng.int(2, 3), waterPools: rng.int(1, 2), poolSize: 12 });
+    this.room = generateRoom(rng, sides.map((side) => SIDE_DOOR[side]), { rockCount: rng.int(2, 3), waterPools: rng.int(1, 2), poolSize: 12 });
 
     makePlaceholderArt(this);
     createPlayerAnims(this);
@@ -205,7 +235,8 @@ export default class PlayScene extends Phaser.Scene {
     this.propEffects = new PropEffects(this, high);
     this.buildColliders(rng);
 
-    this.player = this.physics.add.sprite(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2, 'player-idle', 0);
+    const start = this.entryPoint(this.run.from);
+    this.player = this.physics.add.sprite(start.x, start.y, 'player-idle', 0);
     this.player.setLighting(true).setDepth(10);
     // Hitbox at the boots (frame is 48×48, soles on row 46), so the helmet can
     // overlap the wall above like in a 3/4 view.
@@ -268,18 +299,30 @@ export default class PlayScene extends Phaser.Scene {
       hurtPlayer: (amount, fromX, fromY) => this.hurtPlayer(amount, fromX, fromY),
       track: (obj, baseRow, height, width) => {
         this.reflectors.push({ obj, baseRow });
-        this.addCaster(obj, baseRow, height, width, Math.min(1, width / 24), 4.9);
+        this.addCaster(obj, baseRow, height, width, Math.min(1.4, width / 24), 4.9);
       },
       untrack: (obj) => this.untrack(obj),
       depthAt,
       shakeAdd: (amount) => this.shake.add(amount),
       playerFeet: () => this.playerFeet(),
     });
-    this.enemies.onCleared = () => this.hud()?.flash('Stanza ripulita');
-    this.enemies.spawn(new Rng(rng.int(0, 1e9)), this.spawnCells, this.playerFeet(), (c, r) => ({
-      x: ROOM_X + c * TILE + TILE / 2,
-      y: ROOM_Y + (r + 1) * TILE - 4,
-    }));
+    this.enemies.onCleared = () => {
+      this.run.cleared.push(this.here.id);
+      this.hud()?.flash(this.here.kind === 'boss' ? 'Piano ripulito' : 'Stanza ripulita');
+      this.openDoors(true);
+      this.syncMap();
+    };
+    const enemyRng = new Rng(rng.int(0, 1e9));
+    const fights = (this.here.kind === 'normal' || this.here.kind === 'boss') && !this.run.cleared.includes(this.here.id);
+    // No boss yet: its room holds a double wave.
+    for (let wave = 0; fights && wave < (this.here.kind === 'boss' ? 2 : 1); wave++) {
+      this.enemies.spawn(enemyRng, this.spawnCells, this.playerFeet(), (c, r) => ({
+        x: ROOM_X + c * TILE + TILE / 2,
+        y: ROOM_Y + (r + 1) * TILE - 4,
+      }));
+    }
+    this.addDoors(sides);
+    if (this.enemies.alive === 0) this.openDoors(false);
 
     if (high) {
       // Dust motes drifting in the dark.
@@ -305,6 +348,108 @@ export default class PlayScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.frameCamera, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.frameCamera, this));
     if (!this.scene.isActive('hud')) this.scene.launch('hud');
+    if (this.run.from) this.cameras.main.fadeIn(180, 0, 0, 0);
+  }
+
+  /** Where the player stands on arrival: just inside the door they came through, or the centre. */
+  private entryPoint(from?: Side): { x: number; y: number } {
+    const door = from ? SIDE_DOOR[from] : { col: Math.floor(ROOM_COLS / 2), row: Math.floor(ROOM_ROWS / 2) };
+    const inward = { up: [0, 1], down: [0, -1], left: [1, 0], right: [-1, 0] }[from ?? 'up'];
+    const c = door.col + (from ? inward[0] : 0);
+    const r = door.row + (from ? inward[1] : 0);
+    // The sprite centre sits above the boots (soles on row 46 of 48).
+    return { x: ROOM_X + c * TILE + TILE / 2, y: ROOM_Y + r * TILE + TILE / 2 - 8 };
+  }
+
+  /** Closed doors on every side that leads somewhere, each with a blocker in the opening. */
+  private addDoors(sides: Side[]): void {
+    for (const side of sides) {
+      const d = SIDE_DOOR[side];
+      const x = ROOM_X + d.col * TILE;
+      const y = ROOM_Y + d.row * TILE;
+      let image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
+      let block: [number, number, number, number];
+      if (side === 'up') {
+        image = this.add.sprite(x + TILE / 2, ROOM_Y, doorAnimKey(CRASH_SITE), 0).setOrigin(0.5, 1);
+        block = [x, ROOM_Y - WALL, TILE, WALL];
+      } else if (side === 'down') {
+        image = this.add.image(x, ROOM_Y + ROOM_H, hatchKey(CRASH_SITE, 'bottom')).setOrigin(0);
+        block = [x, ROOM_Y + ROOM_H, TILE, WALL];
+      } else if (side === 'left') {
+        image = this.add.image(0, y, hatchKey(CRASH_SITE, 'left')).setOrigin(0);
+        block = [0, y, WALL, TILE];
+      } else {
+        image = this.add.image(ROOM_X + ROOM_W, y, hatchKey(CRASH_SITE, 'right')).setOrigin(0);
+        block = [ROOM_X + ROOM_W, y, WALL, TILE];
+      }
+      image.setLighting(true).setDepth(1.5);
+      const blocker = this.add.zone(...block).setOrigin(0);
+      this.walls.add(blocker);
+      this.doors.push({ side, image, blocker });
+    }
+  }
+
+  /** Opens every door: the top one slides open, side hatches retract. */
+  private openDoors(animate: boolean): void {
+    for (const door of this.doors) {
+      if (door.blocker) {
+        this.walls.remove(door.blocker, true, true);
+        door.blocker = undefined;
+      }
+      if (door.image instanceof Phaser.GameObjects.Sprite) {
+        if (animate) door.image.play(doorAnimKey(CRASH_SITE));
+        else door.image.setFrame(CRASH_SITE.doorAnim.frames[CRASH_SITE.doorAnim.frames.length - 1]);
+      } else if (animate) {
+        this.tweens.add({ targets: door.image, alpha: 0, duration: 220, ease: 'Quad.In' });
+      } else {
+        door.image.setVisible(false);
+      }
+    }
+    if (animate && this.doors.length) this.shake.add(0.15);
+  }
+
+  /** Walks through an open door into the next room, with a short fade. */
+  leave(side: Side): void {
+    const next = neighbour(this.floor, this.here, side);
+    if (!next || this.leaving || this.dead) return;
+    this.leaving = true;
+    this.player.setVelocity(0, 0);
+    this.shootKeys.clear();
+    const run: RunState = { ...this.run, room: next.id, from: OPPOSITE[side], health: this.health };
+    this.cameras.main.fadeOut(160, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
+      this.scene.restart({ quality: this.quality, shake: this.shakeStrength, run }),
+    );
+  }
+
+  /** Side whose doorway the player has walked into, if any. */
+  private exitSide(): Side | null {
+    const f = this.playerFeet();
+    if (f.y < ROOM_Y - 4) return 'up';
+    if (f.y > ROOM_Y + ROOM_H + 12) return 'down';
+    if (f.x < ROOM_X - 8) return 'left';
+    if (f.x > ROOM_X + ROOM_W + 8) return 'right';
+    return null;
+  }
+
+  /** Minimap: rooms visited, and the ones seen through their doors. */
+  private syncMap(): void {
+    const visited = new Set(this.run.visited);
+    const seen = new Set<number>();
+    for (const id of visited) {
+      const room = this.floor.rooms[id];
+      for (const side of doorSides(this.floor, room)) seen.add(neighbour(this.floor, room, side)!.id);
+    }
+    this.hud()?.setMap(
+      this.floor.rooms
+        .filter((r) => visited.has(r.id) || seen.has(r.id))
+        .map((r) => ({
+          gx: r.gx,
+          gy: r.gy,
+          kind: r.kind,
+          state: r.id === this.here.id ? 'current' : visited.has(r.id) ? 'visited' : 'seen',
+        })),
+    );
   }
 
   /** Fits the camera to the screen: whole room in landscape, follow in portrait. */
@@ -341,14 +486,25 @@ export default class PlayScene extends Phaser.Scene {
     if (this.dead) {
       this.player.setVelocity(0, 0);
       if (!this.restartOffered && time - this.deadAt > 1400) this.offerRestart();
-    } else {
+    } else if (!this.leaving) {
       this.updateMovement(time);
       this.updateShooting(time);
       this.updateAnimation(time);
+      const side = this.exitSide();
+      if (side) this.leave(side);
     }
     this.enemies.update(time);
     if (!this.hudSynced && this.hud()) {
       this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
+      this.syncMap();
+      const title = !this.run.from
+        ? 'Piano 1 — Sito dello schianto'
+        : this.here.kind === 'treasure'
+          ? 'Stanza del tesoro'
+          : this.here.kind === 'boss' && !this.run.cleared.includes(this.here.id)
+            ? 'Tana del boss'
+            : null;
+      if (title) this.hud()!.flash(title);
       this.hudSynced = true;
     }
     // Blink while invulnerable after a hit.
@@ -470,7 +626,7 @@ export default class PlayScene extends Phaser.Scene {
    * gives a second of blinking invulnerability. At zero the astronaut dies.
    */
   hurtPlayer(amount: number, fromX: number, fromY: number): void {
-    if (this.dead) return;
+    if (this.dead || this.leaving) return;
     const now = this.time.now;
     const r = applyDamage(this.health, amount, now);
     if (!r.took) return;
@@ -767,10 +923,26 @@ export default class PlayScene extends Phaser.Scene {
       const zone = this.add.zone(x, y, w, h).setOrigin(0);
       this.walls.add(zone);
     };
-    addBlock(0, 0, FRAME_W, WALL);
-    addBlock(0, FRAME_H - WALL, FRAME_W, WALL);
-    addBlock(0, WALL, WALL, ROOM_H);
-    addBlock(FRAME_W - WALL, WALL, WALL, ROOM_H);
+    // Wall ring, with a one-tile gap at every door (closed doors add their own blocker).
+    const has = (col: number, row: number) => this.room.doors.some((d) => d.col === col && d.row === row);
+    const doorCol = Math.floor(ROOM_COLS / 2);
+    const doorRow = Math.floor(ROOM_ROWS / 2);
+    const gapX = ROOM_X + doorCol * TILE;
+    const gapY = ROOM_Y + doorRow * TILE;
+    for (const [y, open] of [[0, has(doorCol, 0)], [FRAME_H - WALL, has(doorCol, ROOM_ROWS - 1)]] as const) {
+      if (!open) addBlock(0, y, FRAME_W, WALL);
+      else {
+        addBlock(0, y, gapX, WALL);
+        addBlock(gapX + TILE, y, FRAME_W - gapX - TILE, WALL);
+      }
+    }
+    for (const [x, open] of [[0, has(0, doorRow)], [FRAME_W - WALL, has(ROOM_COLS - 1, doorRow)]] as const) {
+      if (!open) addBlock(x, WALL, WALL, ROOM_H);
+      else {
+        addBlock(x, WALL, WALL, gapY - WALL);
+        addBlock(x, gapY + TILE, WALL, ROOM_H - (gapY - WALL) - TILE);
+      }
+    }
 
     const edgeCells: { c: number; r: number }[] = [];
     const freeCells: { c: number; r: number }[] = [];

@@ -8,7 +8,7 @@ import { attachNormalMap } from '../render/pixelArt';
  * frames in the order of the original grid, facing right). Frame numbers
  * pick the rows that worked best on each sheet.
  */
-const SHEETS: Record<EnemyKind, { w: number; h: number; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
+const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
   crawler: {
     w: 27,
     h: 25,
@@ -29,6 +29,8 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; anims: Record<string, { 
   miner: {
     w: 31,
     h: 45,
+    // Drawn at the astronaut's height; shown bigger so it reads as a threat.
+    scale: 1.35,
     anims: {
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
       attack: { frames: [6, 7, 8, 9, 10, 11], fps: 11, loop: true },
@@ -186,13 +188,14 @@ export class EnemyManager {
     // Start each enemy on a different frame so they do not move in step.
     const first = kind === 'spitter' ? 'idle' : 'move';
     sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
-    sprite.setOrigin(0.5, 1).setLighting(true).setDepth(this.host.depthAt(baseY));
+    const scale = SHEETS[kind].scale ?? 1;
+    sprite.setOrigin(0.5, 1).setScale(scale).setLighting(true).setDepth(this.host.depthAt(baseY));
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, sprite.height - def.body.h - 1);
     if (def.speed === 0) body.setImmovable(true);
     this.group.add(sprite);
     const h = sprite.height;
-    this.host.track(sprite, h - 1, Math.round(h * 0.85), Math.round(sprite.width * 0.8));
+    this.host.track(sprite, h - 1, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
     this.enemies.push({ sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 } });
   }
 
@@ -250,7 +253,7 @@ export class EnemyManager {
   }
 
   private fireSpore(e: Enemy, dir: { x: number; y: number }): void {
-    const top = e.sprite.y - e.sprite.height + 4;
+    const top = e.sprite.y - e.sprite.displayHeight + 4;
     const spore = this.spores.get(e.sprite.x, top) as Phaser.Physics.Arcade.Image | null;
     if (!spore) return;
     spore.enableBody(true, e.sprite.x, top, true, true);
@@ -321,7 +324,7 @@ export class EnemyManager {
   private kill(e: Enemy): void {
     const { sprite } = e;
     const kind = e.state.kind;
-    (kind === 'spitter' ? this.sporePuff : this.goo).explode(kind === 'miner' ? 28 : 18, sprite.x, sprite.y - sprite.height / 2);
+    (kind === 'spitter' ? this.sporePuff : this.goo).explode(kind === 'miner' ? 28 : 18, sprite.x, sprite.y - sprite.displayHeight / 2);
     this.host.shakeAdd(kind === 'miner' ? 0.3 : 0.18);
     this.host.untrack(sprite);
     this.enemies = this.enemies.filter((x) => x !== e);
