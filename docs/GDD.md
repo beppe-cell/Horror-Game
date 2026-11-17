@@ -109,7 +109,7 @@ Tecnica di manutenzione di una nave mineraria, unica sopravvissuta allo schianto
 | Bloom | Sì | No |
 | Nebbia a strati | Sì | No |
 | Particelle (scintille, pulviscolo) | Tutte | Solo scintille |
-| Ombre: macchia di contatto sotto gli stivali (niente effetto "levitazione") più ombra proiettata dalla luce più vicina, più lunga e più tenue man mano che la luce si allontana; i proiettili volano a mezz'aria (altezza del blaster) e hanno una piccola ombra a terra sotto di loro | Sì | Sì |
+| Ombre: ogni oggetto a terra (astronauta, rocce, cristalli) ha una macchia di contatto (niente effetto "levitazione") e proietta un'ombra da ciascuna delle 2 luci più forti vicine (proiettili in volo e cristalli), larga quanto l'oggetto, più lunga per oggetti alti e luci lontane, che ruota in tempo reale al passaggio dei colpi; i proiettili volano a mezz'aria con una piccola ombra a terra | Sì | Sì |
 
 Il piano 4 (laboratorio allagato) è la vetrina dell'acqua.
 
