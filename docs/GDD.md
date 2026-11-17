@@ -121,6 +121,10 @@ Il piano 4 (laboratorio allagato) è la vetrina dell'acqua.
 4. `npm run sprites` (script `tools/clean_sprites.py`) ripulisce la pixel art generata: trova la dimensione dei pixel, li riporta su una griglia vera, riduce i colori a una palette comune a tutti i fogli del personaggio, rimuove il magenta e allinea i frame (piedi sulla stessa riga, casco centrato). Risultato in `public/sprites/<entità>/`.
 5. Il gioco calcola da solo le mappe di rilievo per le luci.
 
+6. Per le stanze, `npm run rooms` (script `tools/extract_sprites.py`) non usa una griglia fissa, perché Gemini spesso non la rispetta: trova ogni tile e ogni oggetto come regione separata dal magenta, li pulisce allo stesso modo e li numera in un foglio indice (`art/processed/rooms/<foglio>-index.png`). Per i fogli di tile la dimensione dei pixel è scelta in modo che le tile quadrate risultino 32×32. In `src/render/biome.ts` si assegna a mano quali pezzi sono pavimento, muro, porta, ostacolo, decorazione o luce.
+
+**Stato delle stanze:** piano 1 (sito dello schianto) nel gioco. Piani 2-5 estratti in `art/processed/rooms/`, da verificare quando si costruiscono quei piani: per gli oggetti dei piani 4 e 5 la stima dei pixel va controllata.
+
 **Pilota (fatto):** i 5 fogli dell'astronauta generati con Gemini reggono la pulizia, quindi la pipeline Gemini è confermata. I pacchetti CC0 restano un ripiego.
 
 ### Feedback dei colpi

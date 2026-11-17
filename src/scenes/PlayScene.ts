@@ -7,7 +7,8 @@ import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
 import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
 import { CameraShake } from '../rules/shake';
-import { TILE, WALL_TILES, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
+import { TILE, WALL_TILES, makePlaceholderArt } from '../render/pixelArt';
+import { CRASH_SITE, paintFloor, paintWalls, preloadBiome, prepareBiome, propKey } from '../render/biome';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
@@ -52,6 +53,14 @@ interface ShadowCaster {
   width: number;
   contact: Phaser.GameObjects.Image;
   casts: Phaser.GameObjects.Image[];
+}
+
+/**
+ * Draw order for things standing on the floor: lower on screen is in front.
+ * Everything that stands sits between depth 5 and 6; shots fly above (12).
+ */
+function depthAt(baseY: number): number {
+  return 5 + baseY / 10000;
 }
 
 /** Shots that carry their own light; extra shots fly unlit. */
@@ -132,6 +141,7 @@ export default class PlayScene extends Phaser.Scene {
 
   preload(): void {
     preloadPlayer(this);
+    preloadBiome(this, CRASH_SITE);
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -146,10 +156,11 @@ export default class PlayScene extends Phaser.Scene {
 
     makePlaceholderArt(this);
     createPlayerAnims(this);
-    makeRoomFloor(this, 'room-floor', ROOM_COLS, ROOM_ROWS, rng.int(0, 1e9));
-    makeRoomWalls(this, 'room-walls', ROOM_COLS, ROOM_ROWS, this.room.doors);
+    prepareBiome(this, CRASH_SITE);
+    paintFloor(this, 'room-floor', CRASH_SITE, ROOM_COLS, ROOM_ROWS, new Rng(rng.int(0, 1e9)));
+    paintWalls(this, 'room-walls', CRASH_SITE, ROOM_COLS, ROOM_ROWS, this.room.doors, new Rng(rng.int(0, 1e9)));
 
-    this.lights.enable().setAmbientColor(0x1b2030);
+    this.lights.enable().setAmbientColor(0x343a4c);
 
     // Cave rock around the room fills whatever spare screen space there is.
     const cave = this.add.tileSprite(FRAME_W / 2, FRAME_H / 2, FRAME_W * 8, FRAME_H * 8, 'px-cave');
@@ -169,8 +180,8 @@ export default class PlayScene extends Phaser.Scene {
     this.reflectors.unshift({ obj: this.player, baseRow: PLAYER_SOLE_ROW });
     // The contact patch sits just behind the player, so the boots overlap
     // its top half: no gap, no floating.
-    this.addCaster(this.player, PLAYER_SOLE_ROW, PLAYER_HEIGHT, 18, 1, 9);
-    this.playerLight = this.lights.addLight(this.player.x, this.player.y, 150, 0xcfeeff, 1.2);
+    this.addCaster(this.player, PLAYER_SOLE_ROW, PLAYER_HEIGHT, 18, 1, 4.9);
+    this.playerLight = this.lights.addLight(this.player.x, this.player.y, 190, 0xcfeeff, 1.2);
 
     this.shots = this.physics.add.group({ defaultKey: 'px-bolt', maxSize: 40 });
     for (let i = 0; i < LIT_SHOTS; i++) {
@@ -263,6 +274,8 @@ export default class PlayScene extends Phaser.Scene {
     this.updateMovement(time);
     this.updateShooting(time);
     this.updateAnimation();
+    // Stand in front of props higher up the screen, behind the ones lower down.
+    this.player.setDepth(depthAt(this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW));
     this.updateShots();
     this.updateLights(time);
     this.hud()?.setDebug(
@@ -613,33 +626,68 @@ export default class PlayScene extends Phaser.Scene {
     addBlock(0, WALL, WALL, ROOM_H);
     addBlock(FRAME_W - WALL, WALL, WALL, ROOM_H);
 
-    const floorCells: { c: number; r: number }[] = [];
+    const edgeCells: { c: number; r: number }[] = [];
+    const freeCells: { c: number; r: number }[] = [];
+    const reserved = (c: number, r: number) =>
+      [...this.room.doors, { col: Math.floor(ROOM_COLS / 2), row: Math.floor(ROOM_ROWS / 2) }].some(
+        (d) => Math.abs(d.col - c) + Math.abs(d.row - r) <= 1,
+      );
     this.room.cells.forEach((row, r) =>
       row.forEach((cell, c) => {
-        const x = ROOM_X + c * TILE + TILE / 2;
-        const y = ROOM_Y + r * TILE + TILE / 2;
         if (cell === 'rock') {
-          const rock = this.add.image(x, y, 'px-rock').setLighting(true).setDepth(5);
-          this.reflectors.push({ obj: rock, baseRow: 29 });
-          this.addCaster(rock, 29, 24, 24, 0.85, 4.9);
-          this.walls.add(rock);
-          (rock.body as Phaser.Physics.Arcade.StaticBody).setSize(26, 22).setOffset(3, 7);
-        } else if (cell === 'floor' && (r === 0 || r === ROOM_ROWS - 1 || c === 0 || c === ROOM_COLS - 1)) {
-          floorCells.push({ c, r });
+          // Obstacle prop standing on the bottom of its cell.
+          const key = propKey(CRASH_SITE, rng.pick(CRASH_SITE.obstacles));
+          const x = ROOM_X + c * TILE + TILE / 2;
+          const baseY = ROOM_Y + (r + 1) * TILE - 3;
+          const prop = this.addProp(key, x, baseY, true);
+          this.walls.add(prop);
+          const body = prop.body as Phaser.Physics.Arcade.StaticBody;
+          const bw = Math.min(prop.width - 4, TILE - 4);
+          const bh = Math.min(prop.height - 4, 20);
+          body.setSize(bw, bh).setOffset((prop.width - bw) / 2, prop.height - bh - 1);
+        } else if (cell === 'floor' && !reserved(c, r)) {
+          freeCells.push({ c, r });
+          if (r === 0 || r === ROOM_ROWS - 1 || c === 0 || c === ROOM_COLS - 1) edgeCells.push({ c, r });
         }
       }),
     );
 
-    // Bioluminescent crystals along the edges: decoration and light sources.
-    for (let i = 0; i < 3 && floorCells.length; i++) {
-      const spot = floorCells.splice(rng.int(0, floorCells.length - 1), 1)[0];
-      const x = ROOM_X + spot.c * TILE + TILE / 2;
-      const y = ROOM_Y + spot.r * TILE + TILE / 2;
-      const crystal = this.add.image(x, y, 'px-crystal').setLighting(true).setDepth(4);
-      this.reflectors.push({ obj: crystal, baseRow: 22 });
-      this.addCaster(crystal, 22, 22, 12, 0.5, 3.9);
-      const base = 0.9;
-      this.crystalLights.push({ light: this.lights.addLight(x, y - 4, 110, 0x4dffb0, base), base, phase: rng.next() * 6 });
+    // Small walkable props scattered on free floor (some give off light).
+    for (let i = 0; i < 6 && freeCells.length; i++) {
+      const spot = freeCells.splice(rng.int(0, freeCells.length - 1), 1)[0];
+      const id = rng.pick(CRASH_SITE.decor);
+      const x = ROOM_X + spot.c * TILE + rng.int(8, TILE - 8);
+      const baseY = ROOM_Y + spot.r * TILE + rng.int(16, TILE - 4);
+      this.addProp(propKey(CRASH_SITE, id), x, baseY, false);
+      const lamp = CRASH_SITE.lamps[id];
+      if (lamp !== undefined) {
+        this.crystalLights.push({ light: this.lights.addLight(x, baseY - 6, 60, lamp, 0.8), base: 0.8, phase: rng.next() * 6 });
+      }
     }
+
+    // Bioluminescent crystals along the edges: decoration and light sources.
+    for (let i = 0; i < 3 && edgeCells.length; i++) {
+      const spot = edgeCells.splice(rng.int(0, edgeCells.length - 1), 1)[0];
+      const x = ROOM_X + spot.c * TILE + TILE / 2;
+      const baseY = ROOM_Y + (spot.r + 1) * TILE - 4;
+      const crystal = this.addProp(propKey(CRASH_SITE, rng.pick(CRASH_SITE.crystals)), x, baseY, false);
+      const base = 0.9;
+      const light = this.lights.addLight(x, baseY - crystal.height / 2, 110, 0x4dffb0, base);
+      this.crystalLights.push({ light, base, phase: rng.next() * 6 });
+    }
+  }
+
+  /**
+   * Places a lit prop standing at (x, baseY): mirrored in the water, with a
+   * contact shadow and cast shadows, drawn in front of what is behind it.
+   */
+  private addProp(key: string, x: number, baseY: number, solid: boolean): Phaser.GameObjects.Image {
+    const prop = (solid ? this.physics.add.staticImage(x, baseY, key) : this.add.image(x, baseY, key)) as Phaser.GameObjects.Image;
+    prop.setOrigin(0.5, 1).setLighting(true).setDepth(depthAt(baseY));
+    if (solid) (prop.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
+    const baseRow = prop.height - 1;
+    this.reflectors.push({ obj: prop, baseRow });
+    this.addCaster(prop, baseRow, Math.round(prop.height * 0.8), Math.round(prop.width * 0.85), Math.min(1, prop.width / 30), 4.9);
+    return prop;
   }
 }
