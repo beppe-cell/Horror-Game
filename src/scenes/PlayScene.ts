@@ -15,7 +15,7 @@ import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, newHealth } from '../rules/health';
-import { EnemyManager } from './Enemies';
+import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
 
 /** Suit integrity at the start of a run, in cells. */
@@ -173,6 +173,7 @@ export default class PlayScene extends Phaser.Scene {
   preload(): void {
     preloadPlayer(this);
     preloadBiome(this, CRASH_SITE);
+    preloadEnemies(this);
   }
 
   /** Converts a stat in tiles to world pixels. */

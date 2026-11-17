@@ -91,7 +91,7 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 | Sputatore (fungo-creatura) | 10 | Fermo; ogni 2,2 s si gonfia (avviso) e spara una spora verso il giocatore | ½ cella (anche la spora) |
 | Ex-minatore infetto | 22 | Lento; se il giocatore è entro 2,6 tile si blocca e trema in rosso (avviso), poi carica a 4,2 tile/s; dopo la carica si riprende per 1,4 s | 1 cella |
 
-Logica in `src/rules/enemies.ts` (testata), gestione nel gioco in `src/scenes/Enemies.ts`. I colpi colpiscono un nemico se attraversano la sua figura disegnata o se la loro ombra cade sulla sua base (così si colpiscono anche i nemici bassi). Colpito: lampo bianco, piccolo rinculo. Morto: schizzi, scossa, schiacciamento e dissolvenza. Grafica segnaposto finché non arrivano i fogli di Gemini (`docs/art/prompt-nemici-piano1.md`).
+Logica in `src/rules/enemies.ts` (testata), gestione nel gioco in `src/scenes/Enemies.ts`. I colpi colpiscono un nemico se attraversano la sua figura disegnata o se la loro ombra cade sulla sua base (così si colpiscono anche i nemici bassi). Colpito: lampo bianco, piccolo rinculo. Morto: schizzi, scossa, schiacciamento e dissolvenza. Grafica da Gemini (`docs/art/prompt-nemici-piano1.md`), estratta con `npm run enemies` in modalità griglia (`@grid=CxR`: ogni frame resta dove è stato disegnato nella sua cella, così le animazioni non tremano). Animazioni usate: movimento, attacco (sputatore e minatore) e morte; il lampo bianco dei colpi è fatto dal codice. Nota: nel foglio del minatore le escrescenze compaiono e scompaiono tra un frame e l'altro (incoerenza di Gemini).
 
 ### Salute e morte
 

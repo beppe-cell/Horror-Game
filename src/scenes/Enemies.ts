@@ -1,7 +1,65 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
 import { ENEMIES, EnemyKind, EnemyState, SPORE_SPEED, newEnemy, stepEnemy } from '../rules/enemies';
-import { makeLitTexture } from '../render/pixelArt';
+import { attachNormalMap } from '../render/pixelArt';
+
+/**
+ * Gemini sprite sheets cleaned by `npm run enemies` (one strip per enemy,
+ * frames in the order of the original grid, facing right). Frame numbers
+ * pick the rows that worked best on each sheet.
+ */
+const SHEETS: Record<EnemyKind, { w: number; h: number; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
+  crawler: {
+    w: 27,
+    h: 25,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 10, loop: true },
+      death: { frames: [32, 33, 34, 35], fps: 9, loop: false },
+    },
+  },
+  spitter: {
+    w: 30,
+    h: 44,
+    anims: {
+      idle: { frames: [0, 1, 2, 3, 4, 5], fps: 6, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 12, loop: false },
+      death: { frames: [20, 21, 22, 23], fps: 8, loop: false },
+    },
+  },
+  miner: {
+    w: 31,
+    h: 45,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 11, loop: true },
+      death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
+};
+
+const animName = (kind: EnemyKind, anim: string) => `en-${kind}-${anim}`;
+
+export function preloadEnemies(scene: Phaser.Scene): void {
+  for (const [kind, sheet] of Object.entries(SHEETS)) {
+    scene.load.spritesheet(`en-${kind}`, `sprites/enemies/${kind}.png`, { frameWidth: sheet.w, frameHeight: sheet.h });
+  }
+}
+
+function createEnemyAnims(scene: Phaser.Scene): void {
+  for (const [kind, sheet] of Object.entries(SHEETS) as [EnemyKind, (typeof SHEETS)[EnemyKind]][]) {
+    attachNormalMap(scene, `en-${kind}`);
+    for (const [name, a] of Object.entries(sheet.anims)) {
+      const key = animName(kind, name);
+      if (scene.anims.exists(key)) continue;
+      scene.anims.create({
+        key,
+        frames: scene.anims.generateFrameNumbers(`en-${kind}`, { frames: a.frames }),
+        frameRate: a.fps,
+        repeat: a.loop ? -1 : 0,
+      });
+    }
+  }
+}
 
 /** What the enemies need from the play scene. */
 export interface EnemyHost {
@@ -60,7 +118,8 @@ export class EnemyManager {
 
   constructor(private host: EnemyHost) {
     const { scene } = host;
-    makeEnemyPlaceholders(scene);
+    createEnemyAnims(scene);
+    makeSporeTexture(scene);
     this.group = scene.physics.add.group();
     this.spores = scene.physics.add.group({ defaultKey: 'en-spore', maxSize: 20 });
     this.goo = scene.add
@@ -123,7 +182,10 @@ export class EnemyManager {
   private add(kind: EnemyKind, x: number, baseY: number, seed: number): void {
     const { scene } = this.host;
     const def = ENEMIES[kind];
-    const sprite = scene.physics.add.sprite(x, baseY, `en-${kind}`);
+    const sprite = scene.physics.add.sprite(x, baseY, `en-${kind}`, 0);
+    // Start each enemy on a different frame so they do not move in step.
+    const first = kind === 'spitter' ? 'idle' : 'move';
+    sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
     sprite.setOrigin(0.5, 1).setLighting(true).setDepth(this.host.depthAt(baseY));
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, sprite.height - def.body.h - 1);
@@ -165,9 +227,16 @@ export class EnemyManager {
     }
   }
 
-  /** Placeholder animation from code: squash while moving, telegraph before attacks, white flash when hit. */
+  /** Sprite animation for the current behaviour, a red telegraph before attacks, a white flash when hit. */
   private animate(e: Enemy, anim: 'move' | 'attack' | 'idle', time: number): void {
     const s = e.sprite;
+    const kind = e.state.kind;
+    const anims = SHEETS[kind].anims;
+    const wanted = anim === 'attack' && anims.attack ? 'attack' : anims.move ? 'move' : 'idle';
+    const key = animName(kind, wanted);
+    if (s.anims.currentAnim?.key !== key) s.play(key);
+    // Walkers pause their walk cycle while standing still.
+    s.anims.timeScale = anim === 'idle' && wanted === 'move' ? 0.3 : 1;
     if (time < e.flashUntil) {
       s.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     } else if (anim === 'attack') {
@@ -178,10 +247,6 @@ export class EnemyManager {
     } else {
       s.clearTint();
     }
-    const phase = time / 120 + e.state.seed * 10;
-    if (anim === 'move') s.setScale(1 + Math.sin(phase) * 0.08, 1 - Math.sin(phase) * 0.08);
-    else if (anim === 'attack' && e.state.phase === 'windup') s.setScale(1.1 + Math.sin(time / 30) * 0.04, 0.9);
-    else s.setScale(1, 1 + Math.sin(time / 400 + e.state.seed * 6) * 0.03);
   }
 
   private fireSpore(e: Enemy, dir: { x: number; y: number }): void {
@@ -260,73 +325,21 @@ export class EnemyManager {
     this.host.shakeAdd(kind === 'miner' ? 0.3 : 0.18);
     this.host.untrack(sprite);
     this.enemies = this.enemies.filter((x) => x !== e);
-    // A quick squash and fade instead of vanishing on the spot.
+    // Play the death animation, leave the remains a moment, then fade them out.
     sprite.disableBody(true, false);
-    this.host.scene.tweens.add({
-      targets: sprite,
-      scaleX: 1.5,
-      scaleY: 0.2,
-      alpha: 0,
-      duration: 180,
-      ease: 'Quad.In',
-      onComplete: () => sprite.destroy(),
+    sprite.clearTint();
+    sprite.anims.timeScale = 1;
+    sprite.play(animName(kind, 'death'));
+    sprite.setDepth(this.host.depthAt(sprite.y) - 0.02);
+    sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      this.host.scene.tweens.add({ targets: sprite, alpha: 0, delay: 900, duration: 700, onComplete: () => sprite.destroy() });
     });
     if (this.enemies.length === 0) this.onCleared?.();
   }
 }
 
-/** Simple lit placeholders, facing right, standing on their bottom row. */
-function makeEnemyPlaceholders(scene: Phaser.Scene): void {
-  const px = (ctx: CanvasRenderingContext2D, color: string, x: number, y: number, w = 1, h = 1) => {
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, w, h);
-  };
-  const blob = (ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, light: string, mid: string, dark: string) => {
-    for (let y = Math.floor(cy - ry); y <= cy + ry; y++) {
-      for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
-        const dx = (x + 0.5 - cx) / rx;
-        const dy = (y + 0.5 - cy) / ry;
-        const d = dx * dx + dy * dy;
-        if (d > 1) continue;
-        const l = -dx * 0.4 - dy * 0.7;
-        px(ctx, d > 0.8 ? '#0b0d14' : l > 0.25 ? light : l > -0.3 ? mid : dark, x, y);
-      }
-    }
-  };
-  makeLitTexture(scene, 'en-crawler', 26, 16, (ctx) => {
-    blob(ctx, 6, 10, 5, 4.5, '#a8b29a', '#7d8a72', '#4f5a48');
-    blob(ctx, 12, 9.5, 5.5, 5.5, '#a8b29a', '#7d8a72', '#4f5a48');
-    blob(ctx, 19, 9, 6, 6, '#b8c2aa', '#8d9a82', '#5f6a58');
-    px(ctx, '#3a0f18', 23, 8, 2, 3); // mouth
-    px(ctx, '#8a2a3a', 23, 9, 1, 1);
-    px(ctx, '#0b0d14', 20, 6, 1, 1); // eye
-    px(ctx, '#d8e8c8', 15, 5, 2, 1); // wet highlight
-  });
-  makeLitTexture(scene, 'en-spitter', 26, 30, (ctx) => {
-    px(ctx, '#3a2a30', 4, 25, 18, 4); // tendrils
-    px(ctx, '#3a2a30', 2, 27, 3, 2);
-    px(ctx, '#3a2a30', 21, 27, 3, 2);
-    blob(ctx, 13, 16, 9, 11, '#9a6a78', '#7a4a5a', '#5a3a48');
-    px(ctx, '#0b0d14', 11, 5, 4, 2); // vent
-    px(ctx, '#3a0f18', 12, 5, 2, 1);
-    for (const [x, y] of [[7, 14], [8, 19], [18, 13], [19, 18], [13, 22]]) px(ctx, '#d8e04a', x, y, 2, 2);
-    px(ctx, '#4f5762', 5, 24, 5, 2); // fused metal scrap
-  });
-  makeLitTexture(scene, 'en-miner', 30, 40, (ctx) => {
-    // Hunched suited figure with a broken visor and alien growths.
-    blob(ctx, 14, 26, 8, 10, '#c8ccc4', '#9aa0a0', '#6f7a8f'); // body
-    px(ctx, '#3c4252', 8, 34, 5, 5); // legs
-    px(ctx, '#3c4252', 16, 34, 5, 5);
-    blob(ctx, 16, 11, 7, 7, '#c8ccc4', '#9aa0a0', '#6f7a8f'); // helmet
-    px(ctx, '#14202a', 17, 9, 6, 5); // broken visor
-    px(ctx, '#2a4a5a', 18, 9, 2, 1);
-    blob(ctx, 21, 8, 3, 3, '#a8b29a', '#7d8a72', '#4f5a48'); // growth from the visor
-    blob(ctx, 8, 19, 4, 4, '#a8b29a', '#7d8a72', '#4f5a48'); // growth on the shoulder
-    px(ctx, '#b85a1c', 9, 23, 4, 2); // hazard stripe
-    px(ctx, '#6f7a8f', 21, 24, 4, 10); // long arm
-    px(ctx, '#e8e4d8', 24, 33, 2, 4); // claw
-    px(ctx, '#e8e4d8', 26, 34, 2, 3);
-  });
+/** The spore the spitter fires: a small glowing ball. */
+function makeSporeTexture(scene: Phaser.Scene): void {
   if (!scene.textures.exists('en-spore')) {
     const g = scene.add.graphics();
     g.fillStyle(0xa0b030).fillRect(1, 1, 5, 5);
