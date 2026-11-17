@@ -9,7 +9,7 @@ oggetti originali. Un astronauta naufragato su un pianeta abbandonato scende att
 struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 - **Obiettivo:** gioco piccolo e completo da pubblicare, in 2-6 mesi.
-- **Piattaforma:** solo browser, 2D.
+- **Piattaforma:** browser, 2D, su desktop e su mobile (telefono in orizzontale, controlli touch).
 - **Distribuzione:** itch.io, gratis o "paga quanto vuoi". La pagina dichiara l'uso di grafica generata con AI.
 - **Lingue:** italiano e inglese.
 
@@ -51,7 +51,10 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 ## 5. Giocatore
 
-- **Controlli:** WASD per muoversi, frecce per sparare in 4 direzioni; gamepad twin-stick.
+- **Controlli:**
+  - Tastiera: WASD per muoversi, frecce per sparare in 4 direzioni.
+  - Gamepad: twin-stick.
+  - Touch: due joystick virtuali che compaiono dove appoggi il dito. Metà sinistra dello schermo per muoversi, metà destra per sparare (direzione arrotondata alla più vicina delle 4). Solo orizzontale: in verticale il gioco chiede di ruotare il telefono.
 - **Salute:** celle di integrità della tuta, più celle di scudo temporanee raccolte nei livelli.
 - **Statistiche:** danno, cadenza di fuoco, gittata, velocità dei colpi, velocità di movimento, fortuna. Gli oggetti le modificano tramite un sistema di modificatori.
 

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
 import { BASE_STATS, Stats, computeStats, fireCooldownMs, shotLifetimeMs } from '../rules/stats';
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
+import { TouchControls } from './TouchControls';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
 
 /** Size of one room cell in pixels. The room is 13×7 cells inside 1920×1080. */
@@ -39,6 +40,7 @@ export default class PlayScene extends Phaser.Scene {
   private moveKeys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private nextShotAt = 0;
   private debugText!: Phaser.GameObjects.Text;
+  touch!: TouchControls;
 
   constructor() {
     super('play');
@@ -68,6 +70,7 @@ export default class PlayScene extends Phaser.Scene {
     this.physics.add.overlap(this.shots, this.walls, (shot) => this.killShot(shot as Phaser.Physics.Arcade.Image));
 
     this.bindInput();
+    this.touch = new TouchControls(this);
 
     this.debugText = this.add
       .text(24, 16, '', { fontFamily: 'monospace', fontSize: '22px', color: '#7fe3ff' })
@@ -117,6 +120,11 @@ export default class PlayScene extends Phaser.Scene {
     const k = this.moveKeys;
     let x = (k.right.isDown ? 1 : 0) - (k.left.isDown ? 1 : 0);
     let y = (k.down.isDown ? 1 : 0) - (k.up.isDown ? 1 : 0);
+    if (x === 0 && y === 0) {
+      const t = this.touch.moveVector();
+      x = t.x;
+      y = t.y;
+    }
     const pad = this.pad();
     if (x === 0 && y === 0 && pad) {
       x = pad.leftStick.x;
@@ -129,6 +137,8 @@ export default class PlayScene extends Phaser.Scene {
   private shootDirection(): Dir4 | null {
     const fromKeys = this.shootKeys.current();
     if (fromKeys) return fromKeys;
+    const fromTouch = this.touch.shootDirection();
+    if (fromTouch) return fromTouch;
     const pad = this.pad();
     return pad ? stickToDir4(pad.rightStick.x, pad.rightStick.y) : null;
   }

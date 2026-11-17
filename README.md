@@ -8,10 +8,12 @@ Roguelite d'azione twin-stick nel browser (Phaser 4 + TypeScript). Design comple
 - Versione di test: GitHub Pages del repo (aggiornata a ogni merge su `main`).
 - `?seed=ABCD1234` nell'URL ripete la stessa run.
 
-| Azione | Tastiera | Gamepad |
-|---|---|---|
-| Muoversi | WASD | Stick sinistro |
-| Sparare | Frecce | Stick destro |
+| Azione | Tastiera | Gamepad | Touch |
+|---|---|---|---|
+| Muoversi | WASD | Stick sinistro | Joystick a sinistra |
+| Sparare | Frecce | Stick destro | Joystick a destra |
+
+Su telefono il gioco va tenuto in orizzontale.
 
 ## Sviluppo
 
@@ -20,7 +22,7 @@ npm install
 npm run dev        # server locale con hitbox visibili
 npm test           # test della logica (vitest)
 npm run typecheck
-npm run build && npm run smoke   # avvia il gioco in un browser headless, muove e spara
+npm run build && npm run smoke   # avvia il gioco in un browser headless (desktop e telefono), muove e spara
 ```
 
 La logica di gioco sta in `src/rules/` e non importa Phaser, così si testa senza browser.
