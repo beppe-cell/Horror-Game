@@ -14,7 +14,12 @@ import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import { PropEffects } from '../render/PropEffects';
+import { Health, applyDamage, cellIcons, newHealth } from '../rules/health';
+import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
+
+/** Suit integrity at the start of a run, in cells. */
+const START_CELLS = 3;
 
 const ROOM_W = ROOM_COLS * TILE;
 const ROOM_H = ROOM_ROWS * TILE;
@@ -123,6 +128,18 @@ export default class PlayScene extends Phaser.Scene {
   private casters: ShadowCaster[] = [];
   /** Objects mirrored in the water (player first, then rocks and crystals). */
   private reflectors: Reflector[] = [];
+  health: Health = newHealth(START_CELLS);
+  dead = false;
+  enemies!: EnemyManager;
+  /** Free floor cells left after props are placed, for enemies to start on. */
+  private spawnCells: { c: number; r: number }[] = [];
+  private hurtUntil = 0;
+  private hudSynced = false;
+  private tintUntil = 0;
+  private deadAt = 0;
+  private restartOffered = false;
+  private knockUntil = 0;
+  private knock = { x: 0, y: 0 };
 
   constructor() {
     super('play');
@@ -143,11 +160,20 @@ export default class PlayScene extends Phaser.Scene {
     this.reflectors = [];
     this.casters = [];
     this.facing = 'down';
+    this.health = newHealth(START_CELLS);
+    this.dead = false;
+    this.spawnCells = [];
+    this.hurtUntil = 0;
+    this.knockUntil = 0;
+    this.hudSynced = false;
+    this.tintUntil = 0;
+    this.restartOffered = false;
   }
 
   preload(): void {
     preloadPlayer(this);
     preloadBiome(this, CRASH_SITE);
+    preloadEnemies(this);
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -226,6 +252,35 @@ export default class PlayScene extends Phaser.Scene {
     }
     this.shake = new CameraShake({ decay: 2.2, maxOffset: 5, strength: this.shakeStrength });
 
+    this.enemies = new EnemyManager({
+      scene: this,
+      player: this.player,
+      walls: this.walls,
+      shots: this.shots,
+      tile: TILE,
+      shotDamage: () => this.stats.damage,
+      shotHit: (shot, x, y) => {
+        const v = shot.body!.velocity;
+        this.impactFeedback(x, y, v.x, v.y);
+        this.tweens.killTweensOf(shot);
+        this.retireShot(shot);
+      },
+      hurtPlayer: (amount, fromX, fromY) => this.hurtPlayer(amount, fromX, fromY),
+      track: (obj, baseRow, height, width) => {
+        this.reflectors.push({ obj, baseRow });
+        this.addCaster(obj, baseRow, height, width, Math.min(1, width / 24), 4.9);
+      },
+      untrack: (obj) => this.untrack(obj),
+      depthAt,
+      shakeAdd: (amount) => this.shake.add(amount),
+      playerFeet: () => this.playerFeet(),
+    });
+    this.enemies.onCleared = () => this.hud()?.flash('Stanza ripulita');
+    this.enemies.spawn(new Rng(rng.int(0, 1e9)), this.spawnCells, this.playerFeet(), (c, r) => ({
+      x: ROOM_X + c * TILE + TILE / 2,
+      y: ROOM_Y + (r + 1) * TILE - 4,
+    }));
+
     if (high) {
       // Dust motes drifting in the dark.
       this.add
@@ -279,9 +334,26 @@ export default class PlayScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.applyShake(delta / 1000);
-    this.updateMovement(time);
-    this.updateShooting(time);
-    this.updateAnimation();
+    if (this.tintUntil && time >= this.tintUntil) {
+      this.player.clearTint();
+      this.tintUntil = 0;
+    }
+    if (this.dead) {
+      this.player.setVelocity(0, 0);
+      if (!this.restartOffered && time - this.deadAt > 1400) this.offerRestart();
+    } else {
+      this.updateMovement(time);
+      this.updateShooting(time);
+      this.updateAnimation(time);
+    }
+    this.enemies.update(time);
+    if (!this.hudSynced && this.hud()) {
+      this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
+      this.hudSynced = true;
+    }
+    // Blink while invulnerable after a hit.
+    const blinking = !this.dead && time < this.health.invulnerableUntil;
+    this.player.setAlpha(blinking && Math.floor(time / 80) % 2 === 0 ? 0.35 : 1);
     // Stand in front of props higher up the screen, behind the ones lower down.
     this.player.setDepth(depthAt(this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW));
     this.updateShots();
@@ -339,7 +411,8 @@ export default class PlayScene extends Phaser.Scene {
     }
     const v = moveVector(x, y);
     const speed = this.px(this.stats.moveSpeed);
-    this.player.setVelocity(v.x * speed, v.y * speed);
+    if (time < this.knockUntil) this.player.setVelocity(this.knock.x, this.knock.y);
+    else this.player.setVelocity(v.x * speed, v.y * speed);
     this.lastMove = v;
 
     // Wading: ripples at the feet while moving through water.
@@ -370,12 +443,76 @@ export default class PlayScene extends Phaser.Scene {
     }
   }
 
-  private updateAnimation(): void {
+  private updateAnimation(time: number): void {
     const shoot = this.shootDirection();
     this.facing = facingFrom(this.lastMove, shoot, this.facing);
+    if (time < this.hurtUntil) {
+      // The hurt animation plays out before walking or shooting take over again.
+      const { key, flipX } = animKey('idle', this.facing);
+      this.player.setFlipX(flipX);
+      const hurt = key.replace('player-idle-', 'player-hurt-');
+      if (this.player.anims.currentAnim?.key !== hurt) this.player.play(hurt, true);
+      return;
+    }
     const { key, flipX } = animKey(actionFrom(this.lastMove, !!shoot), this.facing);
     this.player.setFlipX(flipX);
     if (this.player.anims.currentAnim?.key !== key) this.player.play(key, true);
+  }
+
+  /** Feet of the astronaut in world pixels. */
+  private playerFeet(): { x: number; y: number } {
+    return { x: this.player.x, y: this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW };
+  }
+
+  /**
+   * Damage to the suit: shield first, then integrity. A hit shakes the view,
+   * pushes the astronaut away from the source, plays the hurt animation and
+   * gives a second of blinking invulnerability. At zero the astronaut dies.
+   */
+  hurtPlayer(amount: number, fromX: number, fromY: number): void {
+    if (this.dead) return;
+    const now = this.time.now;
+    const r = applyDamage(this.health, amount, now);
+    if (!r.took) return;
+    this.health = r.health;
+    this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+    this.shake.add(0.45);
+    this.hurtUntil = now + 220;
+    const feet = this.playerFeet();
+    const dx = feet.x - fromX;
+    const dy = feet.y - fromY;
+    const d = Math.hypot(dx, dy) || 1;
+    this.knockUntil = now + 140;
+    this.knock = { x: (dx / d) * 220, y: (dy / d) * 220 };
+    this.player.setTint(0xff6a6a);
+    this.tintUntil = now + 140;
+    if (r.dead) this.die();
+  }
+
+  private die(): void {
+    this.dead = true;
+    this.shootKeys.clear();
+    this.player.setVelocity(0, 0).setAlpha(1).clearTint();
+    this.player.setFlipX(false);
+    this.player.play('player-death');
+    this.shake.add(0.7);
+    this.deadAt = this.time.now;
+  }
+
+  /** After the death animation: offer a restart (R key, or a tap anywhere). */
+  private offerRestart(): void {
+    this.restartOffered = true;
+    this.hud()?.showMessage('Tuta compromessa\n\nPremi R o tocca lo schermo per ricominciare');
+    let done = false;
+    const restart = () => {
+      if (done) return;
+      done = true;
+      this.hud()?.hideMessage();
+      this.scene.restart({ quality: this.quality, shake: this.shakeStrength });
+    };
+    this.input.keyboard?.once('keydown-R', restart);
+    this.input.once(Phaser.Input.Events.POINTER_DOWN, restart);
+    this.hud()?.input.once(Phaser.Input.Events.POINTER_DOWN, restart);
   }
 
   private updateShooting(time: number): void {
@@ -681,7 +818,21 @@ export default class PlayScene extends Phaser.Scene {
       const baseY = ROOM_Y + (spot.r + 1) * TILE - 4;
       const id = rng.pick(CRASH_SITE.crystals);
       this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
+      const used = freeCells.findIndex((f) => f.c === spot.c && f.r === spot.r);
+      if (used >= 0) freeCells.splice(used, 1);
     }
+    // Enemies start on the floor nothing else took (not in water).
+    this.spawnCells = freeCells.filter((f) => this.room.cells[f.r][f.c] === 'floor');
+  }
+
+  /** Removes an object's shadows and reflection (an enemy that died). */
+  private untrack(obj: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite): void {
+    this.reflectors = this.reflectors.filter((r) => r.obj !== obj);
+    for (const c of this.casters.filter((x) => x.obj === obj)) {
+      c.contact.destroy();
+      c.casts.forEach((img) => img.destroy());
+    }
+    this.casters = this.casters.filter((x) => x.obj !== obj);
   }
 
   /**

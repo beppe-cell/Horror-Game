@@ -23,6 +23,11 @@ Options, appended to the path:
   @anim     animation strip: frames keep a common size, aligned on their
             bottom-left corner, so the animation does not jitter; a
             NAME-strip.png with all frames in a row is written too.
+  @grid=CxR the sheet is a grid of C columns and R rows: every piece stays
+            where it was drawn inside its cell (no re-alignment, no jitter),
+            pieces in the same cell are merged into one frame, empty cells
+            stay empty, and the frames share one size. Writes
+            NAME-strip.png in reading order (cell 0 = top-left).
 """
 import json
 import sys
@@ -114,6 +119,7 @@ def main():
         tile_px = next((int(o[4:]) for o in opts if o.startswith('tile')), None)
         forced_px = next((float(o[3:]) for o in opts if o.startswith('px=')), None)
         anim = 'anim' in opts
+        grid = next((tuple(int(v) for v in o[5:].split('x')) for o in opts if o.startswith('grid=')), None)
         img = np.asarray(Image.open(path).convert('RGB')).astype(np.float32)
         s = forced_px or estimate_pixel_size(img)
         fg = ~is_magenta(img)
@@ -147,6 +153,10 @@ def main():
         sheet_dir = out_dir / name
         sheet_dir.mkdir(parents=True, exist_ok=True)
         meta = {'pixelSize': round(float(s), 2), 'pieces': []}
+        if grid:
+            write_grid(out_dir, name, img, s, grid, pieces, ordered, palette, outline)
+            print(f'{name}: pixel {s:.2f}, grid {grid[0]}x{grid[1]}')
+            continue
         cleaned = [trim(clean_specks(quantize(fix_fringe(p, outline), palette))) for p in pieces]
         if anim:
             fw = max(p.shape[1] for p in cleaned if p.size)
@@ -181,6 +191,37 @@ def main():
             draw.text((cx + 3, cy + 1), str(k), fill=(255, 255, 0))
         sheet.save(out_dir / f'{name}-index.png')
         print(f'{name}: pixel {s:.2f}, {len(thumbs)} pieces')
+
+
+def write_grid(out_dir, name, img, s, grid, pieces, boxes, palette, outline):
+    cols, rows = grid
+    cw, ch = img.shape[1] / cols, img.shape[0] / rows
+    fw, fh = int(np.ceil(cw / s)), int(np.ceil(ch / s))
+    frames = [np.zeros((fh, fw, 4), dtype=np.uint8) for _ in range(cols * rows)]
+    for p, (x0, y0, x1, y1, _) in zip(pieces, boxes):
+        p = clean_specks(quantize(fix_fringe(p, outline), palette))
+        c = min(cols - 1, int(((x0 + x1) / 2) // cw))
+        r = min(rows - 1, int(((y0 + y1) / 2) // ch))
+        ox = int(round((max(0, x0 - 2) - c * cw) / s))
+        oy = int(round((max(0, y0 - 2) - r * ch) / s))
+        f = frames[r * cols + c]
+        for y in range(p.shape[0]):
+            for x in range(p.shape[1]):
+                ty, tx = y + oy, x + ox
+                if p[y, x, 3] and 0 <= ty < fh and 0 <= tx < fw:
+                    f[ty, tx] = p[y, x]
+    # Crop every frame to the union of what any frame draws, so they keep
+    # their relative placement but lose the empty margins.
+    used = np.zeros((fh, fw), dtype=bool)
+    for f in frames:
+        used |= f[..., 3] > 0
+    ys, xs = np.where(used)
+    y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+    frames = [f[y0:y1, x0:x1] for f in frames]
+    Image.fromarray(np.concatenate(frames, axis=1), 'RGBA').save(out_dir / f'{name}-strip.png')
+    meta = {'pixelSize': round(float(s), 2), 'frameWidth': int(x1 - x0), 'frameHeight': int(y1 - y0),
+            'columns': cols, 'rows': rows, 'empty': [i for i, f in enumerate(frames) if not (f[..., 3] > 0).any()]}
+    (out_dir / f'{name}.json').write_text(json.dumps(meta, indent=1) + '\n')
 
 
 if __name__ == '__main__':
