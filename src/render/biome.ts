@@ -38,6 +38,8 @@ export interface Biome {
   /** Wall front faces, shown facing the room on all four sides. */
   wallFaces: number[];
   doorClosed: number;
+  /** Top-wall door opening, frames from closed to open (32×32 strip in anim/). */
+  doorAnim: { file: string; frames: number[] };
   /** Props that block movement. */
   obstacles: number[];
   /** Small walkable props. */
@@ -71,6 +73,8 @@ export const CRASH_SITE: Biome = {
   decals: [14, 15, 20, 21],
   wallFaces: [6, 6, 7, 11, 8],
   doorClosed: 12,
+  // Frames 4 and 6 of the strip are drawn wrong: skip them.
+  doorAnim: { file: 'door', frames: [0, 1, 2, 4] },
   obstacles: [0, 0, 1, 1, 3, 4, 5, 13, 16, 21, 23],
   decor: [6, 7, 8, 10, 11, 12, 14, 15, 19, 20],
   crystals: [17, 22, 9],
@@ -111,6 +115,9 @@ function ids(b: Biome): { tiles: number[]; props: number[] } {
 }
 
 export const propAnimKey = (b: Biome, id: number) => `${b.key}-anim-${id}`;
+export const doorAnimKey = (b: Biome) => `${b.key}-door`;
+/** Closed hatch of a side or bottom door, laid over the open passage. */
+export const hatchKey = (b: Biome, side: 'left' | 'right' | 'bottom') => `${b.key}-hatch-${side}`;
 
 export function preloadBiome(scene: Phaser.Scene, b: Biome): void {
   const { tiles, props } = ids(b);
@@ -121,6 +128,7 @@ export function preloadBiome(scene: Phaser.Scene, b: Biome): void {
       frameHeight: a.frameHeight,
     });
   }
+  scene.load.spritesheet(doorAnimKey(b), `sprites/rooms/${b.key}/anim/${b.doorAnim.file}.png`, { frameWidth: TILE, frameHeight: TILE });
   for (const id of tiles) scene.load.image(tileKey(b, id), `sprites/rooms/${b.key}/tiles/${pad(id)}.png`);
   for (const id of props) scene.load.image(propKey(b, id), `sprites/rooms/${b.key}/props/${pad(id)}.png`);
 }
@@ -128,6 +136,18 @@ export function preloadBiome(scene: Phaser.Scene, b: Biome): void {
 /** Normal maps so the scene lights shape every prop. */
 export function prepareBiome(scene: Phaser.Scene, b: Biome): void {
   for (const id of ids(b).props) attachNormalMap(scene, propKey(b, id));
+  attachNormalMap(scene, doorAnimKey(b));
+  if (!scene.anims.exists(doorAnimKey(b))) {
+    scene.anims.create({
+      key: doorAnimKey(b),
+      frames: scene.anims.generateFrameNumbers(doorAnimKey(b), { frames: b.doorAnim.frames }),
+      frameRate: 12,
+    });
+  }
+  const k = WALL_TILES * TILE;
+  makeLitTexture(scene, hatchKey(b, 'left'), k, TILE, (ctx) => sideDoor(ctx, b, 0, 0, k, TILE, 'left', true));
+  makeLitTexture(scene, hatchKey(b, 'right'), k, TILE, (ctx) => sideDoor(ctx, b, 0, 0, k, TILE, 'right', true));
+  makeLitTexture(scene, hatchKey(b, 'bottom'), TILE, k, (ctx) => sideDoor(ctx, b, 0, 0, TILE, k, 'bottom', true));
   for (const [id, a] of Object.entries(b.animated)) {
     const key = propAnimKey(b, Number(id));
     attachNormalMap(scene, key);
@@ -168,7 +188,8 @@ export function paintFloor(scene: Phaser.Scene, key: string, b: Biome, cols: num
 /**
  * Paints the 2-tile wall ring. Every side shows a wall face turned towards
  * the room (the top wall upright, the others rotated), with solid rock
- * behind. Doors use the closed-door tile, turned the same way.
+ * behind. Top doors use the closed-door tile; side and bottom doors are
+ * painted open, and their hatches are separate images (hatchKey).
  */
 export function paintWalls(
   scene: Phaser.Scene,
@@ -211,7 +232,7 @@ export function paintWalls(
       const top = isDoor('top', c) ? source(scene, tileKey(b, b.doorClosed)) : wall();
       face(top, x, k * TILE - top.height / 2, 0);
       if (isDoor('bottom', c)) {
-        sideDoor(ctx, b, (c + k) * TILE, (rows + k) * TILE, TILE, k * TILE, 'bottom');
+        sideDoor(ctx, b, (c + k) * TILE, (rows + k) * TILE, TILE, k * TILE, 'bottom', false);
       } else {
         const bottom = wall();
         face(bottom, x, (rows + k) * TILE + bottom.height / 2, Math.PI);
@@ -220,13 +241,13 @@ export function paintWalls(
     for (let r = 0; r < rows; r++) {
       const y = (r + k) * TILE + TILE / 2;
       if (isDoor('left', r)) {
-        sideDoor(ctx, b, 0, (r + k) * TILE, k * TILE, TILE, 'left');
+        sideDoor(ctx, b, 0, (r + k) * TILE, k * TILE, TILE, 'left', false);
       } else {
         const left = wall();
         face(left, k * TILE - left.height / 2, y, -Math.PI / 2);
       }
       if (isDoor('right', r)) {
-        sideDoor(ctx, b, (cols + k) * TILE, (r + k) * TILE, k * TILE, TILE, 'right');
+        sideDoor(ctx, b, (cols + k) * TILE, (r + k) * TILE, k * TILE, TILE, 'right', false);
       } else {
         const right = wall();
         face(right, (cols + k) * TILE + right.height / 2, y, Math.PI / 2);
@@ -250,6 +271,7 @@ function sideDoor(
   w: number,
   h: number,
   side: 'left' | 'right' | 'bottom',
+  hatch: boolean,
 ): void {
   const c = b.door;
   const rect = (color: string, rx: number, ry: number, rw: number, rh: number) => {
@@ -265,6 +287,7 @@ function sideDoor(
       rect(c.outline, jx, y, 4, h);
       rect(c.metal, jx + 1, y, 2, h);
     }
+    if (!hatch) return;
     // Hatch seen from above: thin top edge, then its front face towards the camera.
     const hy = y + 3;
     rect(c.outline, x + 3, hy - 1, w - 6, 10);
@@ -284,6 +307,7 @@ function sideDoor(
   // Lower jamb: only its top edge shows.
   rect(c.outline, x, y + h - 3, w, 3);
   rect(c.metal, x, y + h - 2, w, 1);
+  if (!hatch) return;
   // Hatch seen edge-on, just inside the wall, with hazard marks.
   const hx = roomEdge + dir * 6 - (side === 'left' ? 6 : 0);
   rect(c.outline, hx - 1, y + 5, 8, h - 7);

@@ -3,6 +3,17 @@ import { TouchControls } from './TouchControls';
 
 /** Size of one suit-cell icon in screen pixels. */
 const CELL = 22;
+/** Size of one minimap room in screen pixels, and the gap between rooms. */
+const MAP_W = 16;
+const MAP_H = 11;
+const MAP_GAP = 3;
+
+export interface MapRoom {
+  gx: number;
+  gy: number;
+  kind: 'start' | 'normal' | 'treasure' | 'boss';
+  state: 'current' | 'visited' | 'seen';
+}
 
 /**
  * Screen-space overlay drawn above the game at zoom 1: the suit cells, the
@@ -15,6 +26,8 @@ export default class HudScene extends Phaser.Scene {
   private cells!: Phaser.GameObjects.Graphics;
   private message!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
+  private map!: Phaser.GameObjects.Graphics;
+  private mapRooms: MapRoom[] = [];
 
   constructor() {
     super('hud');
@@ -23,6 +36,7 @@ export default class HudScene extends Phaser.Scene {
   create(): void {
     this.touch = new TouchControls(this);
     this.cells = this.add.graphics().setDepth(100);
+    this.map = this.add.graphics().setDepth(100);
     this.debugText = this.add
       .text(12, 0, '', { fontFamily: 'monospace', fontSize: '12px', color: '#7fe3ff' })
       .setDepth(100)
@@ -45,6 +59,37 @@ export default class HudScene extends Phaser.Scene {
     this.debugText.setPosition(12, height - 22);
     this.message.setPosition(width / 2, height / 2).setWordWrapWidth(width * 0.85);
     this.banner.setPosition(width / 2, height * 0.18);
+    this.drawMap();
+  }
+
+  /** Minimap in the top-right corner. */
+  setMap(rooms: MapRoom[]): void {
+    this.mapRooms = rooms;
+    this.drawMap();
+  }
+
+  private drawMap(): void {
+    const g = this.map;
+    if (!g) return;
+    g.clear();
+    const rooms = this.mapRooms;
+    if (!rooms.length) return;
+    const minX = Math.min(...rooms.map((r) => r.gx));
+    const maxX = Math.max(...rooms.map((r) => r.gx));
+    const minY = Math.min(...rooms.map((r) => r.gy));
+    const stepX = MAP_W + MAP_GAP;
+    const stepY = MAP_H + MAP_GAP;
+    const left = this.scale.width - 14 - (maxX - minX + 1) * stepX + MAP_GAP;
+    const top = 14;
+    for (const r of rooms) {
+      const x = left + (r.gx - minX) * stepX;
+      const y = top + (r.gy - minY) * stepY;
+      const fill = r.state === 'current' ? 0xe8eef7 : r.state === 'visited' ? 0x5a6478 : 0x1a2030;
+      g.fillStyle(0x0b0d14, 0.85).fillRect(x - 1, y - 1, MAP_W + 2, MAP_H + 2);
+      g.fillStyle(fill, 0.95).fillRect(x, y, MAP_W, MAP_H);
+      const icon = r.kind === 'boss' ? 0xff4d4d : r.kind === 'treasure' ? 0xffd34d : undefined;
+      if (icon !== undefined) g.fillStyle(icon, 1).fillRect(x + MAP_W / 2 - 2, y + MAP_H / 2 - 2, 4, 4);
+    }
   }
 
   setDebug(text: string): void {
