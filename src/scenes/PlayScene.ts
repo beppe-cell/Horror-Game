@@ -5,7 +5,7 @@ import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
-import { TILE, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
+import { TILE, WALL_TILES, makePlaceholderArt, makeRoomFloor, makeRoomWalls } from '../render/pixelArt';
 import { Water } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
@@ -13,12 +13,14 @@ import type HudScene from './HudScene';
 
 const ROOM_W = ROOM_COLS * TILE;
 const ROOM_H = ROOM_ROWS * TILE;
-/** Room interior starts one wall tile in from the world origin. */
-const ROOM_X = TILE;
-const ROOM_Y = TILE;
+/** Wall thickness in world pixels. */
+const WALL = WALL_TILES * TILE;
+/** Room interior starts one wall thickness in from the world origin. */
+const ROOM_X = WALL;
+const ROOM_Y = WALL;
 /** Room plus its wall ring. */
-const FRAME_W = ROOM_W + TILE * 2;
-const FRAME_H = ROOM_H + TILE * 2;
+const FRAME_W = ROOM_W + WALL * 2;
+const FRAME_H = ROOM_H + WALL * 2;
 
 /** Share of the player's velocity added to a new shot. */
 const SHOT_INHERIT = 0.3;
@@ -161,7 +163,7 @@ export default class PlayScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const { width, height } = this.scale;
     cam.setSize(width, height);
-    const view = frameView(width, height, FRAME_W, FRAME_H, TILE);
+    const view = frameView(width, height, ROOM_W, ROOM_H, TILE);
     cam.setZoom(view.zoom);
     if (view.follow) {
       cam.startFollow(this.player, true, 0.12, 0.12);
@@ -170,7 +172,7 @@ export default class PlayScene extends Phaser.Scene {
     } else {
       cam.stopFollow();
       cam.removeBounds();
-      cam.centerOn(FRAME_W / 2, FRAME_H / 2);
+      cam.centerOn(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2);
     }
   }
 
@@ -322,10 +324,10 @@ export default class PlayScene extends Phaser.Scene {
       const zone = this.add.zone(x, y, w, h).setOrigin(0);
       this.walls.add(zone);
     };
-    addBlock(0, 0, FRAME_W, TILE);
-    addBlock(0, FRAME_H - TILE, FRAME_W, TILE);
-    addBlock(0, TILE, TILE, ROOM_H);
-    addBlock(FRAME_W - TILE, TILE, TILE, ROOM_H);
+    addBlock(0, 0, FRAME_W, WALL);
+    addBlock(0, FRAME_H - WALL, FRAME_W, WALL);
+    addBlock(0, WALL, WALL, ROOM_H);
+    addBlock(FRAME_W - WALL, WALL, WALL, ROOM_H);
 
     const floorCells: { c: number; r: number }[] = [];
     this.room.cells.forEach((row, r) =>

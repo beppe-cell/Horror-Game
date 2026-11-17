@@ -154,7 +154,14 @@ export function makeRoomFloor(scene: Phaser.Scene, key: string, cols: number, ro
   });
 }
 
-/** Paints the wall ring around a room, with lit door frames, into one texture. */
+/** Wall thickness around a room, in tiles. */
+export const WALL_TILES = 2;
+
+/**
+ * Paints the thick wall ring around a room into one texture. The inner row
+ * of the top wall is drawn as a lit face, so the room reads as seen from
+ * above at an angle; doors are dark passages through the whole thickness.
+ */
 export function makeRoomWalls(
   scene: Phaser.Scene,
   key: string,
@@ -163,23 +170,41 @@ export function makeRoomWalls(
   doors: readonly { col: number; row: number }[],
 ): void {
   if (scene.textures.exists(key)) scene.textures.remove(key);
-  const w = (cols + 2) * TILE;
-  const h = (rows + 2) * TILE;
+  const k = WALL_TILES;
+  const w = (cols + 2 * k) * TILE;
+  const h = (rows + 2 * k) * TILE;
   makeLitTexture(scene, key, w, h, (ctx) => {
     const rng = new Rng(3);
-    for (let r = 0; r < rows + 2; r++) {
-      for (let c = 0; c < cols + 2; c++) {
-        if (r > 0 && r < rows + 1 && c > 0 && c < cols + 1) continue;
+    for (let r = 0; r < rows + 2 * k; r++) {
+      for (let c = 0; c < cols + 2 * k; c++) {
+        if (r >= k && r < rows + k && c >= k && c < cols + k) continue;
         paintWallTile(ctx, c * TILE, r * TILE, rng);
       }
     }
+    // Top wall face: the row just above the floor catches the light.
+    px(ctx, PAL.wallLight, k * TILE, (k - 1) * TILE + TILE - 3, cols * TILE, 3);
+    // Inner rim all around, where the wall meets the floor.
+    px(ctx, PAL.outline, k * TILE - 2, k * TILE - 2, cols * TILE + 4, 2);
+    px(ctx, PAL.outline, k * TILE - 2, (rows + k) * TILE, cols * TILE + 4, 2);
+    px(ctx, PAL.outline, k * TILE - 2, k * TILE, 2, rows * TILE);
+    px(ctx, PAL.outline, (cols + k) * TILE, k * TILE, 2, rows * TILE);
     for (const d of doors) {
-      // Door cell in the wall ring, next to the room cell the door opens from.
-      const c = d.col === 0 ? 0 : d.col === cols - 1 ? cols + 1 : d.col + 1;
-      const r = d.row === 0 ? 0 : d.row === rows - 1 ? rows + 1 : d.row + 1;
-      px(ctx, '#0b0d14', c * TILE, r * TILE, TILE, TILE);
-      px(ctx, '#2f8fa0', c * TILE + 4, r * TILE + 4, TILE - 8, TILE - 8);
-      px(ctx, '#0b0d14', c * TILE + 8, r * TILE + 8, TILE - 16, TILE - 16);
+      const top = d.row === 0;
+      const bottom = d.row === rows - 1;
+      const left = d.col === 0 && !top && !bottom;
+      if (top || bottom) {
+        const x = (d.col + k) * TILE;
+        const y = top ? 0 : (rows + k) * TILE;
+        px(ctx, PAL.outline, x - 4, y, TILE + 8, k * TILE);
+        px(ctx, '#2f8fa0', x - 2, y, 2, k * TILE);
+        px(ctx, '#2f8fa0', x + TILE, y, 2, k * TILE);
+      } else {
+        const x = left ? 0 : (cols + k) * TILE;
+        const y = (d.row + k) * TILE;
+        px(ctx, PAL.outline, x, y - 4, k * TILE, TILE + 8);
+        px(ctx, '#2f8fa0', x, y - 2, k * TILE, 2);
+        px(ctx, '#2f8fa0', x, y + TILE, k * TILE, 2);
+      }
     }
   });
 }

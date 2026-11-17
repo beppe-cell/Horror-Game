@@ -25,7 +25,7 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 - Phaser 4, TypeScript (strict), Vite.
 - Test: vitest per la logica (generatore, oggetti, statistiche); Playwright come smoke test (il gioco si avvia senza errori).
 - Il canvas riempie sempre tutto lo schermo, senza bande nere:
-  - **orizzontale:** la stanza è sempre intera e centrata; lo spazio in più si riempie con la roccia della caverna;
+  - **orizzontale:** la stanza è sempre intera e centrata, con 1,75 tile di muro visibili attorno. Su 16:9 l'interno occupa circa il 70% della larghezza e i due terzi dell'altezza, e il personaggio è alto circa un ottavo dello schermo: le proporzioni classiche dei roguelite a stanze. Lo spazio in più (schermi più larghi) si riempie con la roccia della caverna;
   - **verticale (es. 9:16):** la telecamera segue il giocatore, con circa 8,5 tile in larghezza e l'intera altezza della stanza.
 - Qualità degli effetti automatica: alta su desktop, bassa su telefoni e tablet. `?quality=high` o `?quality=low` nell'URL la forza.
 - Salvataggio in `localStorage`: meta-progressione, più "salva ed esci" a metà run tra una stanza e l'altra.
@@ -46,7 +46,7 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 ### Generazione delle stanze (interamente procedurale)
 
-- Stanze di dimensione fissa: una schermata, su griglia.
+- Stanze di dimensione fissa: interno 13×7 tile, muri spessi 2 tile; una schermata.
 - Ostacoli e rocce piazzati per pattern più rumore.
 - Controllo di connettività: tutte le porte e i pickup devono essere raggiungibili.
 - Ogni stanza ha un budget di difficoltà che cresce col piano e sceglie quali nemici piazzare.

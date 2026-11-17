@@ -12,12 +12,32 @@ export interface ViewFrame {
 /** Tiles visible across the screen in portrait. */
 export const PORTRAIT_TILES_ACROSS = 8.5;
 
-export function frameView(screenW: number, screenH: number, roomW: number, roomH: number, tile: number): ViewFrame {
+/**
+ * Wall margin shown around the room interior in landscape, in tiles. With a
+ * 13×7 room this makes the interior about 70% of the screen width and two
+ * thirds of its height on 16:9, the classic proportions of room-based
+ * twin-stick games, with the character about an eighth of the screen tall.
+ */
+export const VIEW_MARGIN_TILES = 1.75;
+
+/**
+ * @param interiorW room interior width in world pixels (no walls)
+ * @param interiorH room interior height in world pixels
+ */
+export function frameView(
+  screenW: number,
+  screenH: number,
+  interiorW: number,
+  interiorH: number,
+  tile: number,
+): ViewFrame {
+  const viewW = interiorW + 2 * VIEW_MARGIN_TILES * tile;
+  const viewH = interiorH + 2 * VIEW_MARGIN_TILES * tile;
   if (screenH > screenW) {
-    const zoom = Math.min(screenW / (PORTRAIT_TILES_ACROSS * tile), screenH / roomH);
+    const zoom = Math.min(screenW / (PORTRAIT_TILES_ACROSS * tile), screenH / viewH);
     return { orientation: 'portrait', zoom, follow: true };
   }
-  return { orientation: 'landscape', zoom: Math.min(screenW / roomW, screenH / roomH), follow: false };
+  return { orientation: 'landscape', zoom: Math.min(screenW / viewW, screenH / viewH), follow: false };
 }
 
 export type Quality = 'high' | 'low';

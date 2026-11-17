@@ -140,16 +140,19 @@ describe('normal maps', () => {
 });
 
 describe('view framing', () => {
-  it('fits the whole room in landscape', () => {
-    const v = frameView(1920, 1080, 480, 288, 32);
+  it('frames a 16:9 screen like classic room-based twin-stick games', () => {
+    // 13×7 interior of 32 px tiles; character frame 41 px tall.
+    const v = frameView(1920, 1080, 416, 224, 32);
     expect(v.orientation).toBe('landscape');
     expect(v.follow).toBe(false);
-    expect(480 * v.zoom).toBeLessThanOrEqual(1920);
-    expect(288 * v.zoom).toBeLessThanOrEqual(1080);
+    expect((416 * v.zoom) / 1920).toBeGreaterThan(0.65);
+    expect((416 * v.zoom) / 1920).toBeLessThan(0.75);
+    expect((224 * v.zoom) / 1080).toBeCloseTo(2 / 3, 1);
+    expect((41 * v.zoom) / 1080).toBeCloseTo(0.12, 1);
   });
 
   it('follows the player in portrait with about 8 tiles across', () => {
-    const v = frameView(1080, 1920, 480, 288, 32);
+    const v = frameView(1080, 1920, 416, 224, 32);
     expect(v.orientation).toBe('portrait');
     expect(v.follow).toBe(true);
     expect(1080 / v.zoom / 32).toBeCloseTo(8.5);
