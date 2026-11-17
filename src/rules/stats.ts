@@ -11,15 +11,16 @@ export interface Modifier {
 }
 
 /**
- * Base astronaut stats. Units: damage per shot, shots per second, pixels of
- * travel, pixels per second, pixels per second, and a unitless luck score.
+ * Base astronaut stats. Distances are in room tiles so they do not depend on
+ * the art resolution. Units: damage per shot, shots per second, tiles of
+ * travel, tiles per second, tiles per second, and a unitless luck score.
  */
 export const BASE_STATS: Readonly<Stats> = {
   damage: 3.5,
   fireRate: 2.75,
-  range: 650,
-  shotSpeed: 900,
-  moveSpeed: 420,
+  range: 5.4,
+  shotSpeed: 7.5,
+  moveSpeed: 3.5,
   luck: 0,
 };
 
@@ -27,9 +28,9 @@ export const BASE_STATS: Readonly<Stats> = {
 export const STAT_FLOORS: Readonly<Stats> = {
   damage: 0.5,
   fireRate: 0.5,
-  range: 150,
-  shotSpeed: 300,
-  moveSpeed: 180,
+  range: 1.25,
+  shotSpeed: 2.5,
+  moveSpeed: 1.5,
   luck: -10,
 };
 

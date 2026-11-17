@@ -1,101 +1,123 @@
-// Smoke test: builds nothing, serves dist/ with `vite preview`, opens it in a
-// headless browser, moves and shoots, and fails on any page error.
-// Usage: npm run build && npm run smoke
+// Smoke test: serves dist/ with `vite preview`, opens the game in a headless
+// browser on a desktop screen and on a phone held both ways, moves and
+// shoots, and fails on any page error. Usage: npm run build && npm run smoke
 import { preview } from 'vite';
 import { chromium } from 'playwright';
 
 const server = await preview({ preview: { port: 4317, strictPort: true }, logLevel: 'error' });
-const url = 'http://localhost:4317/?seed=SMOKETST';
+const base = 'http://localhost:4317/?seed=SMOKETST';
 const browser = await chromium.launch(
   process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {},
 );
 const errors = [];
-let result;
-try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
-  page.on('pageerror', (e) => errors.push(e.message));
+const results = {};
+
+async function open(name, contextOptions, quality) {
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+  page.on('pageerror', (e) => errors.push(`[${name}] ${e.message}`));
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
+    if (m.type() === 'error') errors.push(`[${name}] ${m.text()}`);
   });
-  await page.goto(url);
+  await page.goto(`${base}&quality=${quality}`);
   await page.waitForFunction(() => window.game?.isRunning && window.game.scene.getScene('play')?.player, null, {
     timeout: 15000,
   });
-  await page.waitForTimeout(500);
-  const before = await page.evaluate(() => {
+  await page.waitForTimeout(600);
+  return { context, page };
+}
+
+const state = (page) =>
+  page.evaluate(() => {
     const s = window.game.scene.getScene('play');
-    return { x: s.player.x, y: s.player.y };
-  });
-  await page.locator('canvas').click();
-  await page.keyboard.down('KeyD');
-  await page.keyboard.down('ArrowUp');
-  await page.waitForTimeout(800);
-  await page.keyboard.up('ArrowUp');
-  await page.keyboard.up('KeyD');
-  await page.waitForTimeout(100);
-  result = await page.evaluate(() => {
-    const s = window.game.scene.getScene('play');
+    const cam = s.cameras.main;
     return {
       renderer: window.game.config.renderType === 2 ? 'webgl' : 'canvas',
       scenes: window.game.scene.getScenes(true).map((sc) => sc.sys.settings.key),
       seed: s.seed,
+      fps: Math.round(window.game.loop.actualFps),
+      quality: s.quality,
       x: s.player.x,
-      y: s.player.y,
+      vx: Math.round(s.player.body.velocity.x),
       shotsFired: s.shotsFired,
+      water: !!s.water.shader,
+      canvas: [window.game.canvas.width, window.game.canvas.height],
+      zoom: Number(cam.zoom.toFixed(2)),
+      touchUsed: window.game.scene.getScene('hud')?.touch?.used ?? false,
     };
   });
-  result.moved = result.x - before.x;
-  await page.screenshot({ path: 'smoke.png' });
 
-  // Phone in landscape: drag the left virtual stick right and the right one up.
-  const phone = await browser.newContext({
-    viewport: { width: 915, height: 412 },
-    hasTouch: true,
-    isMobile: true,
-    deviceScaleFactor: 1,
-  });
-  const mobile = await phone.newPage();
-  mobile.on('pageerror', (e) => errors.push(`[mobile] ${e.message}`));
-  await mobile.goto(url);
-  await mobile.waitForFunction(() => window.game?.isRunning && window.game.scene.getScene('play')?.player, null, {
-    timeout: 15000,
-  });
-  await mobile.waitForTimeout(500);
-  const mBefore = await mobile.evaluate(() => window.game.scene.getScene('play').player.x);
-  const cdp = await phone.newCDPSession(mobile);
-  const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
-  const left = { id: 1, x: 200, y: 260 };
-  const right = { id: 2, x: 720, y: 260 };
-  await touch('touchStart', [left]);
-  await touch('touchStart', [left, right]);
-  for (let i = 1; i <= 10; i++) {
-    await touch('touchMove', [
-      { ...left, x: left.x + i * 10 },
-      { ...right, y: right.y - i * 10 },
-    ]);
-    await mobile.waitForTimeout(80);
+try {
+  // Desktop with every effect on: render check only. Headless Chromium draws
+  // on the CPU, so high quality runs at a few fps and movement means little.
+  {
+    const { context, page } = await open('desktop-high', { viewport: { width: 1280, height: 720 } }, 'high');
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: 'smoke.png' });
+    const s = await state(page);
+    if (!s.water) errors.push('[desktop-high] water shader missing');
+    if (s.quality !== 'high') errors.push('[desktop-high] quality override ignored');
+    await context.close();
   }
-  const during = await mobile.evaluate(() => {
-    const s = window.game.scene.getScene('play');
-    return { touchUsed: s.touch.used, x: s.player.x, shotsFired: s.shotsFired };
-  });
-  await mobile.screenshot({ path: 'smoke-mobile.png' });
-  await touch('touchEnd', []);
-  result.mobile = { ...during, moved: during.x - mBefore };
-  await phone.close();
+
+  // Desktop, keyboard.
+  {
+    const { context, page } = await open('desktop', { viewport: { width: 1280, height: 720 } }, 'low');
+    const before = await state(page);
+    await page.locator('canvas').click();
+    await page.keyboard.down('KeyD');
+    await page.keyboard.down('ArrowUp');
+    await page.waitForTimeout(800);
+    const after = await state(page); // sampled while the keys are still held
+    await page.keyboard.up('ArrowUp');
+    await page.keyboard.up('KeyD');
+    results.desktop = { ...after, moved: after.x - before.x };
+    await context.close();
+  }
+
+  // Phones: drag the left stick right and the right stick up with two fingers.
+  const phones = {
+    'phone-landscape': { width: 915, height: 412 },
+    'phone-portrait': { width: 412, height: 915 },
+  };
+  for (const [name, viewport] of Object.entries(phones)) {
+    const { context, page } = await open(name, { viewport, hasTouch: true, isMobile: true, deviceScaleFactor: 1 }, 'low');
+    const before = await state(page);
+    const cdp = await context.newCDPSession(page);
+    const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+    const left = { id: 1, x: viewport.width * 0.2, y: viewport.height * 0.75 };
+    const right = { id: 2, x: viewport.width * 0.8, y: viewport.height * 0.75 };
+    await touch('touchStart', [left]);
+    await touch('touchStart', [left, right]);
+    for (let i = 1; i <= 10; i++) {
+      await touch('touchMove', [
+        { ...left, x: left.x + i * 6 },
+        { ...right, y: right.y - i * 6 },
+      ]);
+      await page.waitForTimeout(80);
+    }
+    const after = await state(page);
+    await page.screenshot({ path: `smoke-${name}.png` });
+    await touch('touchEnd', []);
+    results[name] = { ...after, moved: after.x - before.x };
+    await context.close();
+  }
 } finally {
   await browser.close();
   await new Promise((resolve) => server.httpServer.close(resolve));
 }
 
 const failures = [...errors];
-if (result.seed !== 'SMOKETST') failures.push(`seed from URL not applied: ${result.seed}`);
-if (result.moved < 50) failures.push(`player did not move right (moved ${result.moved}px)`);
-if (result.shotsFired < 1) failures.push('no shots fired while holding ArrowUp');
-if (!result.mobile.touchUsed) failures.push('touch controls never saw a touch');
-if (result.mobile.moved < 50) failures.push(`touch stick did not move the player (moved ${result.mobile.moved}px)`);
-if (result.mobile.shotsFired < 1) failures.push('touch stick did not shoot');
-console.log(JSON.stringify({ ...result, errors }, null, 2));
+for (const [name, r] of Object.entries(results)) {
+  if (r.renderer !== 'webgl') failures.push(`${name}: not WebGL`);
+  if (r.seed !== 'SMOKETST') failures.push(`${name}: seed from URL not applied (${r.seed})`);
+  // Velocity, not distance: headless Chromium renders on the CPU at a few fps
+  // and Phaser slows the simulation down rather than skipping frames.
+  if (r.vx <= 0 || r.moved <= 0) failures.push(`${name}: player not moving right (vx ${r.vx}, moved ${r.moved}px)`);
+  if (r.shotsFired < 1) failures.push(`${name}: no shots fired`);
+  if (name !== 'desktop' && !r.touchUsed) failures.push(`${name}: touch never registered`);
+}
+console.log(JSON.stringify({ results, errors }, null, 2));
 if (failures.length) {
   console.error('SMOKE FAILED:\n- ' + failures.join('\n- '));
   process.exit(1);

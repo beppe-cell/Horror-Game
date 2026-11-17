@@ -3,6 +3,8 @@ import { Rng, newSeedString, seedFromString } from '../src/rules/rng';
 import { BASE_STATS, STAT_FLOORS, computeStats, fireCooldownMs, shotLifetimeMs } from '../src/rules/stats';
 import { ShootKeys, moveVector, stickToDir4, touchSide, virtualStick } from '../src/rules/input';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, allConnected, generateRoom } from '../src/rules/room';
+import { normalMapFromRgba } from '../src/rules/normalmap';
+import { frameView, pickQuality } from '../src/rules/view';
 
 describe('Rng', () => {
   it('repeats the same sequence for the same seed', () => {
@@ -43,7 +45,7 @@ describe('stats', () => {
 
   it('derives cooldown and shot lifetime', () => {
     expect(fireCooldownMs({ ...BASE_STATS, fireRate: 4 })).toBe(250);
-    expect(shotLifetimeMs({ ...BASE_STATS, range: 900, shotSpeed: 900 })).toBe(1000);
+    expect(shotLifetimeMs({ ...BASE_STATS, range: 6, shotSpeed: 6 })).toBe(1000);
   });
 });
 
@@ -91,18 +93,71 @@ describe('room generation', () => {
   it('never blocks doors or the centre, across many seeds', () => {
     const centre = { col: Math.floor(ROOM_COLS / 2), row: Math.floor(ROOM_ROWS / 2) };
     for (let seed = 0; seed < 300; seed++) {
-      const room = generateRoom(new Rng(seed), DOOR_CELLS, 25);
+      const room = generateRoom(new Rng(seed), DOOR_CELLS, { rockCount: 25, waterPools: 2 });
       expect(allConnected(room.cells, [...DOOR_CELLS, centre])).toBe(true);
     }
   });
 
   it('gives the same room for the same seed', () => {
-    expect(generateRoom(new Rng(9), DOOR_CELLS, 12)).toEqual(generateRoom(new Rng(9), DOOR_CELLS, 12));
+    expect(generateRoom(new Rng(9), DOOR_CELLS, { rockCount: 12, waterPools: 1 })).toEqual(generateRoom(new Rng(9), DOOR_CELLS, { rockCount: 12, waterPools: 1 }));
   });
 
   it('places rocks when asked', () => {
-    const room = generateRoom(new Rng(3), DOOR_CELLS, 10);
+    const room = generateRoom(new Rng(3), DOOR_CELLS, { rockCount: 10 });
     const rocks = room.cells.flat().filter((c) => c === 'rock').length;
     expect(rocks).toBeGreaterThan(0);
+  });
+
+  it('adds water pools only when asked', () => {
+    const count = (opts: { rockCount: number; waterPools?: number }) =>
+      generateRoom(new Rng(5), DOOR_CELLS, opts).cells.flat().filter((c) => c === 'water').length;
+    expect(count({ rockCount: 5 })).toBe(0);
+    expect(count({ rockCount: 5, waterPools: 2 })).toBeGreaterThan(4);
+  });
+});
+
+describe('normal maps', () => {
+  it('gives a flat surface a normal facing the viewer', () => {
+    const flat = new Uint8ClampedArray(4 * 4 * 4).fill(200);
+    const n = normalMapFromRgba(flat, 4, 4);
+    expect([n[0], n[1], n[2]]).toEqual([128, 128, 255]);
+  });
+
+  it('tilts normals away from a bright ridge', () => {
+    const w = 5;
+    const img = new Uint8ClampedArray(w * w * 4);
+    for (let y = 0; y < w; y++) {
+      const o = (y * w + 2) * 4;
+      img.set([255, 255, 255, 255], o); // bright vertical line in column 2
+    }
+    const n = normalMapFromRgba(img, w, w);
+    const leftOfRidge = n[(2 * w + 1) * 4]; // red channel = x
+    const rightOfRidge = n[(2 * w + 3) * 4];
+    expect(leftOfRidge).toBeLessThan(128);
+    expect(rightOfRidge).toBeGreaterThan(128);
+  });
+});
+
+describe('view framing', () => {
+  it('fits the whole room in landscape', () => {
+    const v = frameView(1920, 1080, 480, 288, 32);
+    expect(v.orientation).toBe('landscape');
+    expect(v.follow).toBe(false);
+    expect(480 * v.zoom).toBeLessThanOrEqual(1920);
+    expect(288 * v.zoom).toBeLessThanOrEqual(1080);
+  });
+
+  it('follows the player in portrait with about 8 tiles across', () => {
+    const v = frameView(1080, 1920, 480, 288, 32);
+    expect(v.orientation).toBe('portrait');
+    expect(v.follow).toBe(true);
+    expect(1080 / v.zoom / 32).toBeCloseTo(8.5);
+  });
+
+  it('picks quality from the device unless the URL overrides it', () => {
+    expect(pickQuality({ desktop: true })).toBe('high');
+    expect(pickQuality({ desktop: false })).toBe('low');
+    expect(pickQuality({ desktop: false, override: 'high' })).toBe('high');
+    expect(pickQuality({ desktop: true, override: 'nonsense' })).toBe('high');
   });
 });
