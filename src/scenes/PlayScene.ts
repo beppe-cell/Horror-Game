@@ -299,7 +299,7 @@ export default class PlayScene extends Phaser.Scene {
       hurtPlayer: (amount, fromX, fromY) => this.hurtPlayer(amount, fromX, fromY),
       track: (obj, baseRow, height, width) => {
         this.reflectors.push({ obj, baseRow });
-        this.addCaster(obj, baseRow, height, width, Math.min(1, width / 24), 4.9);
+        this.addCaster(obj, baseRow, height, width, Math.min(1.4, width / 24), 4.9);
       },
       untrack: (obj) => this.untrack(obj),
       depthAt,

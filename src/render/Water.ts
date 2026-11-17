@@ -321,7 +321,7 @@ export class Water {
       }
       const frame = obj.frame;
       mirror.setTexture(obj.texture.key, frame.name);
-      mirror.setFlipX(obj.flipX).setFlipY(true);
+      mirror.setFlipX(obj.flipX).setFlipY(true).setScale(obj.scaleX, obj.scaleY);
       // Ground contact in world space, then the image hangs below it.
       const groundY = obj.y - obj.displayOriginY + baseRow;
       const fromBottom = frame.height - 1 - baseRow;
