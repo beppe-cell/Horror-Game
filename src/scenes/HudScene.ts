@@ -46,6 +46,7 @@ export default class HudScene extends Phaser.Scene {
   private statIcons!: Phaser.GameObjects.Graphics;
   private statTexts: Phaser.GameObjects.Text[] = [];
   private lastStats: StatLine[] = [];
+  private musicButton!: Phaser.GameObjects.Text;
   private lastHealth: { icons: number[]; shield: number } | null = null;
 
   /**
@@ -86,6 +87,23 @@ export default class HudScene extends Phaser.Scene {
       .setDepth(100);
     this.bossName.setShadow(0, 1, '#000000', 4, true, true);
     this.statIcons = this.add.graphics().setDepth(100);
+    // Music on/off: a note under the stats. Its tap must not also start a stick.
+    this.musicButton = this.add
+      .text(0, 0, '♪', { fontFamily: 'monospace', color: '#c8ccc4' })
+      .setDepth(100)
+      .setInteractive({ useHandCursor: true });
+    this.musicButton.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        const music = this.registry.get('music') as { start(): void; toggle(): boolean } | undefined;
+        music?.start();
+        music?.toggle();
+        this.syncMusicButton();
+      },
+    );
+    this.game.events.on('music-toggled', this.syncMusicButton, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.game.events.off('music-toggled', this.syncMusicButton, this));
     this.statTexts = [];
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -213,6 +231,13 @@ export default class HudScene extends Phaser.Scene {
     }
   }
 
+  /** Dim, crossed-out note when the music is off. */
+  private syncMusicButton(): void {
+    const music = this.registry.get('music') as { isMuted: boolean } | undefined;
+    const off = music?.isMuted ?? false;
+    this.musicButton?.setText(off ? '♪×' : '♪').setAlpha(off ? 0.45 : 0.9);
+  }
+
   /**
    * Stats column on the left, under the suit cells: a small icon and the
    * value of each stat, so item effects can be read at a glance.
@@ -236,6 +261,9 @@ export default class HudScene extends Phaser.Scene {
       }
       t.setFontSize(Math.round(14 * k)).setText(line.value.toFixed(2)).setPosition((x + 19) * k, (y - 1) * k);
     });
+    // The music button sits under the stats column.
+    this.musicButton?.setFontSize(Math.round(18 * k)).setPosition(x * k, (50 + Math.max(lines.length, 6) * 19 + 4) * k);
+    this.syncMusicButton();
   }
 
   private nextDebugAt = 0;
