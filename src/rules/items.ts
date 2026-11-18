@@ -85,5 +85,24 @@ export function applyItemToHealth(h: Health, id: ItemId): Health {
  * capped so it never becomes certain.
  */
 export function energyDropChance(luck: number): number {
-  return Math.max(0.1, Math.min(0.85, 0.3 + luck * 0.08));
+  return Math.max(0.08, Math.min(0.6, 0.22 + luck * 0.06));
+}
+
+/** Chance that a cleared room drops an item instead: rare, a little more with luck. */
+export function itemDropChance(luck: number): number {
+  return Math.max(0.03, Math.min(0.25, 0.07 + luck * 0.02));
+}
+
+/** Half cells an energy cell restores: one whole suit cell. */
+export const ENERGY_HEAL = 2;
+
+/**
+ * What a cleared room leaves behind, from one roll in [0, 1): a rare item,
+ * an energy cell, or nothing.
+ */
+export function rollRoomReward(roll: number, luck: number): 'item' | 'energy' | null {
+  const item = itemDropChance(luck);
+  if (roll < item) return 'item';
+  if (roll < item + energyDropChance(luck)) return 'energy';
+  return null;
 }

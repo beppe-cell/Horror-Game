@@ -295,3 +295,11 @@ describe('glowing objects', () => {
     expect(sample('dying').filter((x) => x < 0.2).length).toBeGreaterThan(100);
   });
 });
+
+describe('floating touch stick', () => {
+  it('drags its origin along when the finger goes past the radius', async () => {
+    const { followOrigin } = await import('../src/rules/input');
+    expect(followOrigin({ x: 0, y: 0 }, { x: 5, y: 0 }, 10)).toEqual({ x: 0, y: 0 });
+    expect(followOrigin({ x: 0, y: 0 }, { x: 30, y: 0 }, 10)).toEqual({ x: 20, y: 0 });
+  });
+});

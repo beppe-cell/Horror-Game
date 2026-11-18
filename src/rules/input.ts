@@ -69,6 +69,20 @@ export function virtualStick(origin: Vec2, finger: Vec2, radius: number): Vec2 {
   return { x: (dx / len) * (capped / radius), y: (dy / len) * (capped / radius) };
 }
 
+/**
+ * Floating stick origin: when the finger drags farther than the radius, the
+ * origin follows it, so reversing direction takes a short move instead of
+ * dragging all the way back across the old centre.
+ */
+export function followOrigin(origin: Vec2, finger: Vec2, radius: number): Vec2 {
+  const dx = finger.x - origin.x;
+  const dy = finger.y - origin.y;
+  const len = Math.hypot(dx, dy);
+  if (len <= radius) return origin;
+  const k = (len - radius) / len;
+  return { x: origin.x + dx * k, y: origin.y + dy * k };
+}
+
 /** Which virtual stick a new touch belongs to: left half moves, right half shoots. */
 export function touchSide(x: number, screenWidth: number): 'move' | 'shoot' {
   return x < screenWidth / 2 ? 'move' : 'shoot';

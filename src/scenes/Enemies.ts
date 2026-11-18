@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
-import { BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, newEnemy, stepEnemy } from '../rules/enemies';
+import { BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, stepEnemy } from '../rules/enemies';
 import { attachNormalMap } from '../render/pixelArt';
-import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
+import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
 
 /**
  * Gemini sprite sheets cleaned by `npm run enemies` (one strip per enemy,
@@ -265,6 +265,17 @@ export class EnemyManager {
       host.hurtPlayer(1, s.x, s.y);
       this.popSpore(s);
     });
+  }
+
+  /**
+   * Restarts the wake-up wait from `now`, for when the room only becomes
+   * playable after loading: enemies never get a head start.
+   */
+  rewake(now: number): void {
+    for (const e of this.enemies) {
+      if (e.state.phase === 'idle' || e.state.phase === 'hidden') e.state = { ...e.state, until: Math.max(e.state.until, now + WAKE_MS) };
+    }
+    if (this.boss && this.boss.state.phase === 'wake') this.boss.state = { ...this.boss.state, until: now + BOSS_WAKE_MS };
   }
 
   get alive(): number {

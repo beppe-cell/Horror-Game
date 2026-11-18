@@ -20,7 +20,7 @@ async function open(name, contextOptions, quality) {
     if (m.type() === 'error') errors.push(`[${name}] ${m.text()}`);
   });
   await page.goto(`${base}&quality=${quality}`);
-  await page.waitForFunction(() => window.game?.isRunning && window.game.scene.getScene('play')?.player, null, {
+  await page.waitForFunction(() => window.game?.isRunning && window.game.scene.getScene('play')?.ready, null, {
     timeout: 15000,
   });
   await page.waitForTimeout(600);
@@ -96,7 +96,7 @@ try {
         const room = s.floor.rooms.find((r) => r.kind === k);
         s.scene.restart({ quality: s.quality, shake: 0, run: { ...s.run, room: room.id, from: undefined } });
       }, kind);
-      await page.waitForFunction((k) => window.game.scene.getScene('play')?.here?.kind === k && window.game.scene.getScene('play').player, kind, { timeout: 10000 });
+      await page.waitForFunction((k) => window.game.scene.getScene('play')?.here?.kind === k && window.game.scene.getScene('play').ready, kind, { timeout: 10000 });
       await page.waitForTimeout(800);
     };
 
