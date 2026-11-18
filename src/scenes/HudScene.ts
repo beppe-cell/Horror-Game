@@ -4,11 +4,17 @@ import { TouchControls } from './TouchControls';
 /** Size of one suit-cell icon in screen pixels. */
 const CELL = 22;
 /** Size of one minimap grid cell in screen pixels, and the gap between cells. */
-const MAP_W = 14;
+const MAP_W = 13;
 const MAP_H = 9;
-const MAP_GAP = 4;
+const MAP_GAP = 2;
 /** Padding of the minimap panel. */
-const MAP_PAD = 7;
+const MAP_PAD = 6;
+
+/** One line of the stats column: which icon to draw and the value shown. */
+export interface StatLine {
+  icon: 'speed' | 'rate' | 'damage' | 'range' | 'shotSpeed' | 'luck';
+  value: number;
+}
 
 export interface MapRoom {
   /** Grid cells the room covers. */
@@ -35,6 +41,20 @@ export default class HudScene extends Phaser.Scene {
   private bossBar!: Phaser.GameObjects.Graphics;
   private bossName!: Phaser.GameObjects.Text;
   private boss: { name: string; frac: number } | null = null;
+  private statIcons!: Phaser.GameObjects.Graphics;
+  private statTexts: Phaser.GameObjects.Text[] = [];
+  private lastStats: StatLine[] = [];
+  private lastHealth: { icons: number[]; shield: number } | null = null;
+
+  /**
+   * HUD scale: everything is drawn at a base size and scaled with the
+   * screen, so the cells, stats and minimap keep the same share of the view
+   * on a phone and on a big monitor.
+   */
+  private get ui(): number {
+    const { width, height } = this.scale;
+    return Math.max(1, Math.min(width, height) / 300);
+  }
 
   constructor() {
     super('hud');
@@ -63,6 +83,8 @@ export default class HudScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setDepth(100);
     this.bossName.setShadow(0, 1, '#000000', 4, true, true);
+    this.statIcons = this.add.graphics().setDepth(100);
+    this.statTexts = [];
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
   }
@@ -74,6 +96,8 @@ export default class HudScene extends Phaser.Scene {
     this.banner.setPosition(width / 2, height * 0.18);
     this.drawMap();
     this.drawBoss();
+    if (this.lastHealth) this.setHealth(this.lastHealth.icons, this.lastHealth.shield);
+    this.setStats(this.lastStats);
   }
 
   /** Boss health bar at the bottom of the screen; null hides it. */
@@ -106,15 +130,19 @@ export default class HudScene extends Phaser.Scene {
   }
 
   /**
-   * Minimap in the top-right corner, on a dark glass panel: rooms as soft
-   * blocks (joined cells merge into one shape), short links for the doors,
-   * the current room bright, visited rooms grey, rooms only seen as faint
-   * ghosts. The boss lair has a red eye, the treasure room a gold diamond.
+   * Minimap in the top-right corner, in the style of room-based roguelikes:
+   * a dark see-through panel with a thin frame, rooms as grey blocks almost
+   * touching, each with a dark outline (joined cells merge into one block),
+   * the current room white, rooms only seen dark. The boss lair shows a
+   * skull and the treasure room a crown.
    */
   private drawMap(): void {
     const g = this.map;
     if (!g) return;
     g.clear();
+    // Drawn at base size; the graphics object is scaled with the screen.
+    const k = this.ui * 0.95;
+    g.setScale(k);
     const rooms = this.mapRooms;
     if (!rooms.length) return;
     const all = rooms.flatMap((r) => r.cells);
@@ -124,50 +152,71 @@ export default class HudScene extends Phaser.Scene {
     const maxY = Math.max(...all.map((c) => c.y));
     const stepX = MAP_W + MAP_GAP;
     const stepY = MAP_H + MAP_GAP;
-    const panelW = (maxX - minX + 1) * stepX - MAP_GAP + 2 * MAP_PAD;
-    const panelH = (maxY - minY + 1) * stepY - MAP_GAP + 2 * MAP_PAD;
-    const left = this.scale.width - 12 - panelW;
-    const top = 12;
-    g.fillStyle(0x07090f, 0.55).fillRoundedRect(left, top, panelW, panelH, 6);
-    g.lineStyle(1, 0x2a3346, 0.9).strokeRoundedRect(left + 0.5, top + 0.5, panelW - 1, panelH - 1, 6);
-    const px = (x: number) => left + MAP_PAD + (x - minX) * stepX;
-    const py = (y: number) => top + MAP_PAD + (y - minY) * stepY;
-
-    // Door links first, under the rooms.
-    g.fillStyle(0x6f7a8f, 0.9);
-    for (const r of rooms) {
-      for (const d of r.doors) {
-        const x = px(d.x);
-        const y = py(d.y);
-        if (d.side === 'up') g.fillRect(x + MAP_W / 2 - 1, y - MAP_GAP, 2, MAP_GAP);
-        if (d.side === 'down') g.fillRect(x + MAP_W / 2 - 1, y + MAP_H, 2, MAP_GAP);
-        if (d.side === 'left') g.fillRect(x - MAP_GAP, y + MAP_H / 2 - 1, MAP_GAP, 2);
-        if (d.side === 'right') g.fillRect(x + MAP_W, y + MAP_H / 2 - 1, MAP_GAP, 2);
-      }
-    }
+    const panelW = Math.max(60, (maxX - minX + 1) * stepX - MAP_GAP + 2 * MAP_PAD);
+    const panelH = Math.max(44, (maxY - minY + 1) * stepY - MAP_GAP + 2 * MAP_PAD);
+    const left = this.scale.width / k - 10 - panelW;
+    const top = 10;
+    g.fillStyle(0x000000, 0.45).fillRect(left, top, panelW, panelH);
+    g.lineStyle(1, 0xc8ccc4, 0.55).strokeRect(left + 0.5, top + 0.5, panelW - 1, panelH - 1);
+    // Centre the rooms in the panel when it is wider than they need.
+    const usedW = (maxX - minX + 1) * stepX - MAP_GAP;
+    const usedH = (maxY - minY + 1) * stepY - MAP_GAP;
+    const px = (x: number) => left + (panelW - usedW) / 2 + (x - minX) * stepX;
+    const py = (y: number) => top + (panelH - usedH) / 2 + (y - minY) * stepY;
 
     for (const r of rooms) {
-      const [color, alpha] = r.state === 'current' ? [0xdfe8f5, 1] : r.state === 'visited' ? [0x4a5670, 1] : [0x4a5670, 0.35];
-      g.fillStyle(color, alpha);
+      const fill = r.state === 'current' ? 0xf2f2f2 : r.state === 'visited' ? 0x8a8a8a : 0x3a3a3a;
       const has = (x: number, y: number) => r.cells.some((c) => c.x === x && c.y === y);
+      // Dark outline first, then the fill, then the bridges between joined cells.
+      g.fillStyle(0x0b0b0b, 1);
+      for (const c of r.cells) g.fillRect(px(c.x) - 1, py(c.y) - 1, MAP_W + 2, MAP_H + 2);
+      g.fillStyle(fill, 1);
       for (const c of r.cells) {
-        g.fillRoundedRect(px(c.x), py(c.y), MAP_W, MAP_H, 2);
-        // Fill the gap towards the next cell of the same room, so they merge.
-        if (has(c.x + 1, c.y)) g.fillRect(px(c.x) + MAP_W - 2, py(c.y), MAP_GAP + 4, MAP_H);
-        if (has(c.x, c.y + 1)) g.fillRect(px(c.x), py(c.y) + MAP_H - 2, MAP_W, MAP_GAP + 4);
+        g.fillRect(px(c.x), py(c.y), MAP_W, MAP_H);
+        if (has(c.x + 1, c.y)) g.fillRect(px(c.x) + MAP_W, py(c.y), MAP_GAP, MAP_H);
+        if (has(c.x, c.y + 1)) g.fillRect(px(c.x), py(c.y) + MAP_H, MAP_W, MAP_GAP);
+        if (has(c.x + 1, c.y) && has(c.x, c.y + 1) && has(c.x + 1, c.y + 1)) g.fillRect(px(c.x) + MAP_W, py(c.y) + MAP_H, MAP_GAP, MAP_GAP);
       }
-      // Icon in the middle of the room's first cell.
-      const cx = px(r.cells[0].x) + MAP_W / 2;
-      const cy = py(r.cells[0].y) + MAP_H / 2;
+      const cx = Math.round(px(r.cells[0].x) + MAP_W / 2);
+      const cy = Math.round(py(r.cells[0].y) + MAP_H / 2);
       if (r.kind === 'boss') {
-        g.fillStyle(0xff4d5a, 1).fillCircle(cx, cy, 3);
-        g.fillStyle(0x0b0d14, 1).fillRect(cx - 0.5, cy - 2, 1, 4);
+        // Skull: round head, two dark eyes, a jaw.
+        g.fillStyle(0xe8e8e8, 1).fillRect(cx - 3, cy - 3, 6, 4);
+        g.fillRect(cx - 2, cy + 1, 4, 2);
+        g.fillStyle(0x0b0b0b, 1).fillRect(cx - 2, cy - 2, 1, 2).fillRect(cx + 1, cy - 2, 1, 2);
+        g.fillStyle(0xc0303a, 1).fillRect(cx - 3, cy - 4, 6, 1);
       } else if (r.kind === 'treasure') {
-        g.fillStyle(0xffd34d, 1);
-        g.fillTriangle(cx, cy - 3.5, cx + 3, cy, cx - 3, cy);
-        g.fillTriangle(cx, cy + 3.5, cx + 3, cy, cx - 3, cy);
+        // Crown: three points over a band.
+        g.fillStyle(0xffd34d, 1).fillRect(cx - 3, cy, 7, 2);
+        g.fillRect(cx - 3, cy - 3, 1, 3).fillRect(cx, cy - 3, 1, 3).fillRect(cx + 3, cy - 3, 1, 3);
+        g.fillStyle(0xb8862a, 1).fillRect(cx - 3, cy + 2, 7, 1);
       }
     }
+  }
+
+  /**
+   * Stats column on the left, under the suit cells: a small icon and the
+   * value of each stat, so item effects can be read at a glance.
+   */
+  setStats(lines: StatLine[]): void {
+    const g = this.statIcons;
+    if (!g) return;
+    this.lastStats = lines;
+    g.clear();
+    const k = this.ui * 0.75;
+    g.setScale(k);
+    const x = 14;
+    lines.forEach((line, i) => {
+      const y = 50 + i * 19;
+      drawStatIcon(g, line.icon, x, y);
+      let t = this.statTexts[i];
+      if (!t) {
+        t = this.add.text(0, 0, '', { fontFamily: 'monospace', color: '#c8ccc4' }).setDepth(100);
+        t.setShadow(0, 1, '#000000', 3, true, true);
+        this.statTexts[i] = t;
+      }
+      t.setFontSize(Math.round(14 * k)).setText(line.value.toFixed(2)).setPosition((x + 19) * k, (y - 1) * k);
+    });
   }
 
   setDebug(text: string): void {
@@ -181,7 +230,9 @@ export default class HudScene extends Phaser.Scene {
   setHealth(icons: number[], shield: number): void {
     const g = this.cells;
     if (!g) return;
+    this.lastHealth = { icons, shield };
     g.clear();
+    g.setScale(this.ui * 0.6);
     const draw = (i: number, fill: number, color: number, light: number) => {
       const x = 14 + i * (CELL + 6);
       const y = 14;
@@ -215,5 +266,49 @@ export default class HudScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.banner);
     this.banner.setText(text).setAlpha(1);
     this.tweens.add({ targets: this.banner, alpha: 0, delay: 1300, duration: 600 });
+  }
+}
+
+/** 14×14 icon for a stat, drawn with flat pixel shapes, top-left at (x, y). */
+function drawStatIcon(g: Phaser.GameObjects.Graphics, icon: StatLine['icon'], x: number, y: number): void {
+  const px = (color: number, rx: number, ry: number, w = 2, h = 2) => g.fillStyle(color, 1).fillRect(x + rx, y + ry, w, h);
+  g.fillStyle(0x0b0d14, 0.6).fillRect(x - 1, y - 1, 16, 16);
+  switch (icon) {
+    case 'speed': // a boot with speed lines
+      px(0x7d8799, 6, 2, 4, 8);
+      px(0x7d8799, 6, 9, 7, 3);
+      px(0xe8eef7, 7, 3, 2, 2);
+      px(0x39d0ff, 0, 4, 4, 1);
+      px(0x39d0ff, 1, 7, 3, 1);
+      px(0x39d0ff, 0, 10, 4, 1);
+      break;
+    case 'rate': // three bolts in a row
+      for (const bx of [1, 6, 11]) {
+        px(0x7cf7d4, bx, 5, 2, 4);
+        px(0xffffff, bx, 6, 2, 2);
+      }
+      break;
+    case 'damage': // a red burst
+      px(0xff4a5a, 6, 1, 2, 12);
+      px(0xff4a5a, 1, 6, 12, 2);
+      px(0xff8a8a, 3, 3, 8, 8);
+      px(0xffffff, 6, 6, 2, 2);
+      break;
+    case 'range': // a target with a line towards it
+      px(0x7d8799, 0, 6, 7, 2);
+      px(0xff9a3c, 7, 2, 6, 10);
+      px(0x0b0d14, 8, 3, 4, 8);
+      px(0xff9a3c, 9, 5, 2, 4);
+      break;
+    case 'shotSpeed': // a bolt with a long trail
+      px(0x39d0ff, 0, 6, 4, 2);
+      px(0x7cf7d4, 4, 6, 5, 2);
+      px(0xffffff, 9, 5, 4, 4);
+      break;
+    case 'luck': // a four-leaf clover
+      for (const [cx, cy] of [[3, 2], [8, 2], [3, 7], [8, 7]]) px(0x4dffb0, cx, cy, 4, 4);
+      px(0x1f8a5a, 6, 6, 2, 2);
+      px(0x1f8a5a, 7, 10, 1, 4);
+      break;
   }
 }

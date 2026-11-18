@@ -196,6 +196,9 @@ export default class PlayScene extends Phaser.Scene {
   frameH = CELL_H + 2 * WALL;
   private leaving = false;
   private pickups: Pickup[] = [];
+  /** Chalk tutorial on the start room floor, and which controls it shows. */
+  private tutorial: Phaser.GameObjects.GameObject[] = [];
+  private tutorialMode: 'keys' | 'touch' | 'pad' | null = null;
   dead = false;
   enemies!: EnemyManager;
   /** Free floor cells left after props are placed, for enemies to start on. */
@@ -217,6 +220,8 @@ export default class PlayScene extends Phaser.Scene {
     this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [] };
     this.doors = [];
     this.pickups = [];
+    this.tutorial = [];
+    this.tutorialMode = null;
     this.leaving = false;
     this.quality = data.quality ?? 'high';
     this.shakeStrength = data.shake ?? 1;
@@ -398,6 +403,7 @@ export default class PlayScene extends Phaser.Scene {
       this.enemies.spawnBoss(p.x, p.y);
     }
     if (this.here.kind === 'treasure') this.addPedestal();
+    if (this.here.kind === 'start') this.drawTutorial(this.inputMode());
     this.addDoors();
     if (this.enemies.alive === 0) this.openDoors(false);
 
@@ -426,6 +432,98 @@ export default class PlayScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.frameCamera, this));
     if (!this.scene.isActive('hud')) this.scene.launch('hud');
     if (this.run.from !== undefined) this.cameras.main.fadeIn(180, 0, 0, 0);
+  }
+
+  /**
+   * Which controls the player is using: a connected gamepad, a touch screen
+   * (touched, or touch-only with no mouse), or the keyboard.
+   */
+  private inputMode(): 'keys' | 'touch' | 'pad' {
+    if (this.pad()) return 'pad';
+    if (this.hud()?.touch.used) return 'touch';
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches;
+    return coarse || !this.sys.game.device.os.desktop ? 'touch' : 'keys';
+  }
+
+  /**
+   * Chalk drawings on the start room floor, like a survivor's notes: how to
+   * move and how to shoot, for the controls in use (keys, two touch sticks
+   * or a gamepad). Redrawn if the player switches device.
+   */
+  private drawTutorial(mode: 'keys' | 'touch' | 'pad'): void {
+    this.tutorial.forEach((o) => o.destroy());
+    this.tutorial = [];
+    this.tutorialMode = mode;
+    const chalk = 0xd8d0bc;
+    const alpha = 0.3;
+    const g = this.add.graphics().setDepth(-8.5).setAlpha(alpha);
+    this.tutorial.push(g);
+    g.lineStyle(2, chalk, 1);
+    const label = (x: number, y: number, text: string, size = 15) => {
+      const t = this.add
+        .text(x, y, text, { fontFamily: 'monospace', fontSize: `${size}px`, fontStyle: 'bold', color: '#d8d0bc' })
+        .setOrigin(0.5)
+        .setDepth(-8.5)
+        .setAlpha(alpha);
+      this.tutorial.push(t);
+    };
+    const key = (x: number, y: number, text: string, arrow?: 'up' | 'down' | 'left' | 'right') => {
+      g.strokeRoundedRect(x - 9, y - 9, 18, 18, 3);
+      if (!arrow) {
+        label(x, y, text, 11);
+        return;
+      }
+      g.fillStyle(chalk, 1);
+      const [a, b, c] = {
+        up: [[0, -4], [-4, 3], [4, 3]],
+        down: [[0, 4], [-4, -3], [4, -3]],
+        left: [[-4, 0], [3, -4], [3, 4]],
+        right: [[4, 0], [-3, -4], [-3, 4]],
+      }[arrow];
+      g.fillTriangle(x + a[0], y + a[1], x + b[0], y + b[1], x + c[0], y + c[1]);
+    };
+    /** A thumbstick seen from above, with arrows around it. */
+    const stick = (x: number, y: number, name: string) => {
+      g.strokeCircle(x, y, 17);
+      g.strokeCircle(x, y, 8);
+      g.fillStyle(chalk, 1);
+      for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const ax = x + dx * 24;
+        const ay = y + dy * 24;
+        g.fillTriangle(ax + dx * 4, ay + dy * 4, ax - dy * 3 - dx * 1, ay + dx * 3 - dy * 1, ax + dy * 3 - dx * 1, ay - dx * 3 - dy * 1);
+      }
+      label(x, y + 1, name, 10);
+    };
+    const leftX = ROOM_X + 3 * TILE;
+    const rightX = ROOM_X + 10 * TILE;
+    const top = ROOM_Y + 1.1 * TILE;
+    label(leftX, top, 'MUOVI');
+    label(rightX, top, 'SPARA');
+    if (mode === 'touch') {
+      stick(leftX, top + 42, '');
+      stick(rightX, top + 42, '');
+      label(leftX, top + 78, 'lato sinistro', 10);
+      label(rightX, top + 78, 'lato destro', 10);
+    } else if (mode === 'pad') {
+      stick(leftX, top + 42, 'L');
+      stick(rightX, top + 42, 'R');
+    } else {
+      key(leftX, top + 26, 'W');
+      key(leftX - 21, top + 47, 'A');
+      key(leftX, top + 47, 'S');
+      key(leftX + 21, top + 47, 'D');
+      key(rightX, top + 26, '', 'up');
+      key(rightX - 21, top + 47, '', 'left');
+      key(rightX, top + 47, '', 'down');
+      key(rightX + 21, top + 47, '', 'right');
+    }
+    // A little astronaut between them, with a dashed shot flying off.
+    const cx = ROOM_X + 6.5 * TILE;
+    const cy = ROOM_Y + 5.6 * TILE;
+    g.strokeCircle(cx, cy - 10, 6);
+    g.strokeRect(cx - 4, cy - 4, 8, 9);
+    for (let i = 0; i < 4; i++) g.lineBetween(cx + 10 + i * 8, cy - 2, cx + 14 + i * 8, cy - 2);
+    label(cx, cy + 20, 'ripulisci le stanze, trova il boss', 10);
   }
 
   /** Treasure room: an alien pedestal in the middle, with an item floating over it until taken. */
@@ -522,12 +620,26 @@ export default class PlayScene extends Phaser.Scene {
     this.sparks.explode(16, p.icon.x, p.icon.y);
   }
 
+  /** Stats column in the HUD: speed, fire rate, damage, range, shot speed and luck. */
+  private syncStats(): void {
+    const st = this.stats;
+    this.hud()?.setStats([
+      { icon: 'speed', value: st.moveSpeed },
+      { icon: 'rate', value: st.fireRate },
+      { icon: 'damage', value: st.damage },
+      { icon: 'range', value: st.range },
+      { icon: 'shotSpeed', value: st.shotSpeed },
+      { icon: 'luck', value: st.luck },
+    ]);
+  }
+
   /** Adds an item to the run: stats, suit and shot effects change at once. */
   takeItem(id: ItemId): void {
     this.run.items.push(id);
     this.stats = computeStats(BASE_STATS, itemModifiers(this.run.items));
     this.health = applyItemToHealth(this.health, id);
     this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+    this.syncStats();
     this.hud()?.flash(`${ITEMS[id].name}\n${ITEMS[id].hint}`);
     this.shake.add(0.2);
   }
@@ -733,8 +845,13 @@ export default class PlayScene extends Phaser.Scene {
     }
     this.enemies.update(time, delta);
     this.updatePickups(time, delta / 1000);
+    if (this.tutorialMode) {
+      const mode = this.inputMode();
+      if (mode !== this.tutorialMode) this.drawTutorial(mode);
+    }
     if (!this.hudSynced && this.hud()) {
       this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
+      this.syncStats();
       const bossFight = this.here.kind === 'boss' && this.enemies.alive > 0;
       this.hud()!.setBoss(bossFight ? BOSS_NAME : null, 1);
       this.syncMap();
