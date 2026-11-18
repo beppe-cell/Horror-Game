@@ -106,6 +106,10 @@ export interface RunState {
 /** Something lying in the room that the astronaut picks up by walking onto it. */
 interface Pickup {
   icon: Phaser.GameObjects.Image;
+  /** Soft shadow under the floating icon, on the floor or the pedestal top. */
+  shadow: Phaser.GameObjects.Image;
+  /** Height of the surface the shadow falls on (the pedestal top), above the ground point. */
+  surface: number;
   light: Phaser.GameObjects.Light;
   /** Ground point, in world pixels. */
   x: number;
@@ -126,6 +130,8 @@ const BOSS_NAME = 'Madre della covata';
 /** Item sheet: 4x3 cells of 42x36, the pedestal standing on row 29 of its cell. */
 const ITEMS_KEY = 'items';
 const PEDESTAL_BASE_ROW = 29;
+/** Height of the pedestal's flat top above its base, in pixels. */
+const PEDESTAL_TOP = 20;
 
 export interface PlayData {
   seed?: string;
@@ -414,7 +420,7 @@ export default class PlayScene extends Phaser.Scene {
     if (this.run.taken.includes(this.here.id)) return;
     const id = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:item`)), this.run.items);
     if (!id) return;
-    this.addPickup(ITEMS[id].frame, x, baseY, 40, ITEMS[id].color, 28, () => {
+    this.addPickup(ITEMS[id].frame, x, baseY, 40, ITEMS[id].color, 28, PEDESTAL_TOP, () => {
       this.run.taken.push(this.here.id);
       this.takeItem(id);
       return true;
@@ -425,11 +431,21 @@ export default class PlayScene extends Phaser.Scene {
    * A floating, softly lit pickup whose ground point is (x, groundY), drawn
    * `lift` pixels above it; `take` runs when the astronaut's feet come within `radius`.
    */
-  private addPickup(frame: number, x: number, groundY: number, lift: number, color: number, radius: number, take: () => boolean): void {
+  private addPickup(
+    frame: number,
+    x: number,
+    groundY: number,
+    lift: number,
+    color: number,
+    radius: number,
+    surface: number,
+    take: () => boolean,
+  ): void {
     const y = groundY - lift;
     const icon = this.add.image(x, y, ITEMS_KEY, frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
+    const shadow = this.add.image(x, groundY - surface, 'px-shadow').setDepth(surface ? depthAt(groundY) + 0.005 : 4.9);
     const light = this.lights.addLight(x, y, 70, color, 0.9);
-    this.pickups.push({ icon, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take });
+    this.pickups.push({ icon, shadow, surface, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take });
   }
 
   /** True where a sliding pickup cannot go: outside the floor or into a rock. */
@@ -461,9 +477,13 @@ export default class PlayScene extends Phaser.Scene {
         continue;
       }
       Object.assign(p, slide(p, dt, (x, y) => this.blockedAt(x, y)));
-      const bob = Math.sin(time / 290 + p.phase) * 1.5;
-      p.icon.setPosition(p.x, p.y - p.lift + bob).setRotation(p.vx * 0.003).setDepth(depthAt(p.y) + 0.01);
-      p.light.setPosition(p.x, p.y - p.lift);
+      // Levitation: a slow rise and fall; the shadow below shrinks and fades as the icon rises.
+      const rise = (Math.sin(time / 420 + p.phase) + 1) / 2;
+      const tilt = Math.sin(time / 700 + p.phase) * 0.06;
+      p.icon.setPosition(p.x, p.y - p.lift - rise * 5).setRotation(tilt + p.vx * 0.003).setDepth(depthAt(p.y) + 0.01);
+      const w = (p.icon.width / 30) * (0.75 - rise * 0.15);
+      p.shadow.setPosition(p.x, p.y - p.surface).setScale(w, w * 0.8).setAlpha(0.55 - rise * 0.2);
+      p.light.setPosition(p.x, p.y - p.lift - rise * 5);
     }
   }
 
@@ -471,6 +491,7 @@ export default class PlayScene extends Phaser.Scene {
   private collect(p: Pickup): void {
     this.pickups = this.pickups.filter((x) => x !== p);
     this.tweens.add({ targets: p.icon, y: p.icon.y - 24, alpha: 0, duration: 400, ease: 'Quad.Out', onComplete: () => p.icon.destroy() });
+    this.tweens.add({ targets: p.shadow, alpha: 0, scale: 0, duration: 300, onComplete: () => p.shadow.destroy() });
     this.tweens.add({ targets: p.light, intensity: 0, duration: 400, onComplete: () => this.lights.removeLight(p.light) });
     this.sparks.setEmitterAngle({ min: 0, max: 360 });
     this.sparks.explode(16, p.icon.x, p.icon.y);
@@ -490,7 +511,7 @@ export default class PlayScene extends Phaser.Scene {
   private maybeDropEnergy(): void {
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
     if (rng.next() >= energyDropChance(this.stats.luck)) return;
-    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + 6.5 * TILE, ROOM_Y + 4 * TILE - 6, 14, 0x39d0ff, 16, () => {
+    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + 6.5 * TILE, ROOM_Y + 4 * TILE - 6, 14, 0x39d0ff, 16, 0, () => {
       if (this.health.hp >= this.health.max) return false;
       this.health = heal(this.health, 1);
       this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
