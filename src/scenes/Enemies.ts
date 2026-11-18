@@ -197,6 +197,8 @@ export class EnemyManager {
   private warn?: Phaser.GameObjects.Graphics;
   /** The last spot warned about, in tiles, so she emerges exactly there. */
   private lastWarning?: { x: number; y: number };
+  /** Deeper floors make every enemy tougher: health is multiplied by this. */
+  hpScale = 1;
   /** Boss health from 0 to 1 after each hit; 0 when she dies. */
   onBossHealth?: (frac: number) => void;
   private spores!: Phaser.Physics.Arcade.Group;
@@ -303,7 +305,7 @@ export class EnemyManager {
     body.pushable = false;
     this.group.add(sprite);
     this.host.track(sprite, BOSS_BASE_ROW, 46, 54);
-    this.boss = { sprite, state: newBoss(scene.time.now), hp: BOSS_HP, flashUntil: 0, nextDirt: 0 };
+    this.boss = { sprite, state: newBoss(scene.time.now), hp: BOSS_HP * this.hpScale, flashUntil: 0, nextDirt: 0 };
   }
 
   /**
@@ -359,7 +361,7 @@ export class EnemyManager {
     (kind === 'drone' ? this.flyers : this.group).add(sprite);
     const h = sprite.height;
     this.host.track(sprite, base, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
-    const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 }, hidden: kind === 'lurker' };
+    const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp * this.hpScale, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 }, hidden: kind === 'lurker' };
     this.enemies.push(enemy);
     return enemy;
   }
@@ -556,7 +558,7 @@ export class EnemyManager {
     this.host.shotHit(shot, shot.x, shot.y, this.host.pierce());
     b.hp -= this.host.shotDamage();
     b.flashUntil = this.host.scene.time.now + 70;
-    this.onBossHealth?.(Math.max(0, b.hp / BOSS_HP));
+    this.onBossHealth?.(Math.max(0, b.hp / (BOSS_HP * this.hpScale)));
     if (b.hp <= 0) this.killBoss(b);
   }
 
@@ -569,7 +571,7 @@ export class EnemyManager {
     const body = s.body as Phaser.Physics.Arcade.Body;
     const feet = this.host.playerFeet();
     const before = b.state.phase;
-    const step = stepBoss(b.state, { x: s.x / t, y: s.y / t }, { x: feet.x / t, y: feet.y / t }, time, b.hp / BOSS_HP, this.enemies.length);
+    const step = stepBoss(b.state, { x: s.x / t, y: s.y / t }, { x: feet.x / t, y: feet.y / t }, time, b.hp / (BOSS_HP * this.hpScale), this.enemies.length);
     b.state = step.state;
     const { x: bx, y: by, w: bw, h: bh } = this.host.bounds;
     if (step.hidden) {

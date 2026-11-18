@@ -10,7 +10,7 @@ import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
 import { CameraShake } from '../rules/shake';
 import { GlowKind, glowIntensity } from '../rules/glow';
 import { TILE, WALL_TILES, makePlaceholderArt } from '../render/pixelArt';
-import { CRASH_SITE, doorAnimKey, hatchKey, paintFloor, paintWalls, preloadBiome, prepareBiome, propAnimKey, propKey } from '../render/biome';
+import { BIOMES, Biome, CRASH_SITE, biomeFor, doorAnimKey, holeKey, hatchKey, paintFloor, paintWalls, preloadBiome, prepareBiome, propAnimKey, propKey } from '../render/biome';
 import { Reflector, Water, WaterLight } from '../render/Water';
 import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
@@ -103,6 +103,8 @@ export interface RunState {
   items: ItemId[];
   /** Treasure rooms whose item was taken. */
   taken: number[];
+  /** Floor number, from 1. */
+  floor?: number;
   /** Rewards lying on the floor of cleared rooms, by room id, until picked up. */
   drops?: Record<number, Drop>;
   /** Alien coins carried. */
@@ -233,6 +235,10 @@ export default class PlayScene extends Phaser.Scene {
   private steadyFrames = 0;
   private createdAt = 0;
   private pickups: Pickup[] = [];
+  /** Hole to the next floor, once the boss is dead. */
+  private trapdoor: { x: number; y: number } | null = null;
+  /** Art set of this floor. */
+  biome: Biome = CRASH_SITE;
   private breakables: Breakable[] = [];
   /** No "not enough coins" message again before this time. */
   private nextShopHintAt = 0;
@@ -262,6 +268,7 @@ export default class PlayScene extends Phaser.Scene {
     this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [] };
     this.doors = [];
     this.pickups = [];
+    this.trapdoor = null;
     this.breakables = [];
     this.ready = false;
     this.steadyFrames = 0;
@@ -293,9 +300,69 @@ export default class PlayScene extends Phaser.Scene {
 
   preload(): void {
     preloadPlayer(this);
-    preloadBiome(this, CRASH_SITE);
+    for (const b of BIOMES) preloadBiome(this, b);
     preloadEnemies(this);
     preloadItemArt(this);
+  }
+
+  /**
+   * After the boss: a hole opens in the floor, above the room's centre,
+   * leading down to the next floor. Walking into it descends. On the last
+   * floor built so far it says the deeper floors are still to come.
+   */
+  private addTrapdoor(fresh: boolean): void {
+    const floorNo = this.run.floor ?? 1;
+    if (floorNo >= BIOMES.length) {
+      if (fresh) this.hud()?.flash('Altri piani in arrivo');
+      return;
+    }
+    const centre = centreTile(this.here.shape);
+    const x = ROOM_X + (centre.col + 0.5) * TILE;
+    const y = ROOM_Y + (Math.max(1, centre.row - 2) + 0.5) * TILE;
+    const hole = this.add.image(x, y, holeKey(this.biome)).setLighting(true).setDepth(-8);
+    const glow = this.lights.addLight(x, y, 60, 0x7cf7d4, 0.4);
+    this.tweens.add({ targets: glow, intensity: 0.8, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    if (fresh) {
+      hole.setScale(0.1);
+      this.tweens.add({ targets: hole, scale: 1, duration: 500, ease: 'Back.Out' });
+      this.shake.add(0.4);
+      this.sparks.setEmitterAngle({ min: 0, max: 360 });
+      this.sparks.explode(20, x, y);
+      this.hud()?.flash('Si è aperto un passaggio verso il basso');
+    }
+    this.trapdoor = { x, y };
+  }
+
+  /** Down the trapdoor: a new floor, keeping suit, items and coins. */
+  private descend(): void {
+    if (this.leaving || this.dead) return;
+    this.leaving = true;
+    this.player.setVelocity(0, 0);
+    this.shootKeys.clear();
+    this.tweens.add({ targets: this.player, scale: 0.2, alpha: 0, duration: 400, ease: 'Quad.In' });
+    const run: RunState = {
+      ...this.run,
+      floor: (this.run.floor ?? 1) + 1,
+      room: 0,
+      from: undefined,
+      health: this.health,
+      cleared: [],
+      visited: [],
+      taken: [],
+      drops: {},
+      bought: {},
+      broken: {},
+    };
+    this.cameras.main.fadeOut(500, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
+      this.scene.restart({ quality: this.quality, shake: this.shakeStrength, run }),
+    );
+  }
+
+  /** Seed text of this room (each floor has its own set of rooms). */
+  private get roomSeed(): string {
+    const floorNo = this.run.floor ?? 1;
+    return floorNo === 1 ? `${this.seed}:${this.here.id}` : `${this.seed}#${floorNo}:${this.here.id}`;
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -305,7 +372,10 @@ export default class PlayScene extends Phaser.Scene {
 
   create(): void {
     const high = this.quality === 'high';
-    this.floor = generateFloor(new Rng(seedFromString(this.seed)));
+    const floorNo = this.run.floor ?? 1;
+    this.biome = biomeFor(floorNo);
+    // Floor 1 keeps its original seed; deeper floors mix in their number.
+    this.floor = generateFloor(new Rng(seedFromString(floorNo === 1 ? this.seed : `${this.seed}#${floorNo}`)));
     this.here = this.floor.rooms[this.run.room];
     if (!this.run.visited.includes(this.here.id)) this.run.visited.push(this.here.id);
     this.links = doorLinks(this.floor, this.here);
@@ -317,7 +387,7 @@ export default class PlayScene extends Phaser.Scene {
     this.frameH = this.roomH + 2 * WALL;
     const area = shape.cells.length;
     // Each room has its own seed, so walking back into it rebuilds the same room.
-    const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}`));
+    const rng = new Rng(seedFromString(`${this.roomSeed}`));
     // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, up to two small props.
     // The boss needs room to move, and the shop's pedestals need a clear row: no obstacles there.
     const rockCount = this.here.kind === 'boss' || this.here.kind === 'shop' ? 0 : rng.int(2, 3) * area;
@@ -332,10 +402,10 @@ export default class PlayScene extends Phaser.Scene {
     makeCoinAnims(this);
     for (const key of Object.keys(OVERLAY_BOXES)) attachNormalMap(this, key);
     createPlayerAnims(this);
-    prepareBiome(this, CRASH_SITE);
-    paintFloor(this, 'room-floor', CRASH_SITE, size.cols, size.rows, new Rng(rng.int(0, 1e9)));
+    prepareBiome(this, this.biome);
+    paintFloor(this, 'room-floor', this.biome, size.cols, size.rows, new Rng(rng.int(0, 1e9)));
     const open = this.room.cells.map((row) => row.map((c) => c !== 'void'));
-    paintWalls(this, 'room-walls', CRASH_SITE, open, this.links.map((l, i) => ({ ...doorTiles[i], side: l.side })), new Rng(rng.int(0, 1e9)));
+    paintWalls(this, 'room-walls', this.biome, open, this.links.map((l, i) => ({ ...doorTiles[i], side: l.side })), new Rng(rng.int(0, 1e9)));
 
     this.lights.enable().setAmbientColor(0x343a4c);
 
@@ -442,8 +512,13 @@ export default class PlayScene extends Phaser.Scene {
       this.openDoors(true);
       this.syncMap();
       if (this.here.kind === 'normal') this.rollReward();
-      if (this.here.kind === 'boss') this.bossReward();
+      if (this.here.kind === 'boss') {
+        this.bossReward();
+        this.time.delayedCall(1800, () => this.addTrapdoor(true));
+      }
     };
+    // Deeper floors: tougher enemies until each floor has its own.
+    this.enemies.hpScale = 1 + 0.35 * ((this.run.floor ?? 1) - 1);
     this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? BOSS_NAME : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
     const fights = !this.run.cleared.includes(this.here.id);
@@ -465,9 +540,10 @@ export default class PlayScene extends Phaser.Scene {
     }
     if (this.here.kind === 'treasure') this.addPedestal();
     if (this.here.kind === 'shop') this.addShop();
+    if (this.here.kind === 'boss' && this.run.cleared.includes(this.here.id)) this.addTrapdoor(false);
     const waiting = this.run.drops?.[this.here.id];
     if (waiting) this.placeDrop(waiting, false);
-    if (this.here.kind === 'start') this.drawTutorial(this.inputMode());
+    if (this.here.kind === 'start' && (this.run.floor ?? 1) === 1) this.drawTutorial(this.inputMode());
     this.addDoors();
     if (this.enemies.alive === 0) this.openDoors(false);
 
@@ -496,7 +572,9 @@ export default class PlayScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.frameCamera, this));
     if (!this.scene.isActive('hud')) this.scene.launch('hud');
     this.createdAt = this.time.now;
+    const arrivedDown = (this.run.floor ?? 1) > 1 && this.run.visited.length === 1 && this.here.id === 0;
     if (this.run.from !== undefined) this.cameras.main.fadeIn(180, 0, 0, 0);
+    else if (arrivedDown) this.cameras.main.fadeIn(500, 0, 0, 0);
   }
 
   /**
@@ -610,7 +688,7 @@ export default class PlayScene extends Phaser.Scene {
     const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
     this.placePedestal(x, baseY);
     if (this.run.taken.includes(this.here.id)) return;
-    const id = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:item`)), this.run.items);
+    const id = pickItem(new Rng(seedFromString(`${this.roomSeed}:item`)), this.run.items);
     if (!id) return;
     this.addPickup(itemTexture(id), x, baseY, 40, ITEMS[id].color, 28, PEDESTAL_TOP, () => {
       this.run.taken.push(this.here.id);
@@ -631,7 +709,7 @@ export default class PlayScene extends Phaser.Scene {
     // the row of pedestals, and the sign on the top wall (not over a door).
     // Placed from the room's seed, so each shop looks different but stays
     // the same when the player comes back.
-    const place = new Rng(seedFromString(`${this.seed}:${this.here.id}:furniture`));
+    const place = new Rng(seedFromString(`${this.roomSeed}:furniture`));
     const spots = this.spawnCells.filter((c) => Math.abs(c.r - centre.row) >= 2 && c.r > 0);
     const taken: { c: number; r: number }[] = [];
     for (const name of ['terminal', 'dispenser'] as const) {
@@ -651,7 +729,7 @@ export default class PlayScene extends Phaser.Scene {
     const signCol = signCols.length ? place.pick(signCols) : 1;
     const sign = this.add.image(ROOM_X + (signCol + 0.5) * TILE, ROOM_Y - 2, 'shop-sign').setOrigin(0.5, 1).setLighting(true).setDepth(2);
     this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-    const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:shop`));
+    const rng = new Rng(seedFromString(`${this.roomSeed}:shop`));
     const stock: ItemId[] = [];
     for (let i = 0; i < 3; i++) {
       const id = pickItem(rng, [...this.run.items, ...stock]);
@@ -830,7 +908,7 @@ export default class PlayScene extends Phaser.Scene {
    * the floor until picked up, even after leaving the room.
    */
   private rollReward(): void {
-    const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
+    const rng = new Rng(seedFromString(`${this.roomSeed}:drop`));
     const reward = rollRoomReward(rng.next(), this.stats.luck);
     const item = reward === 'item' ? pickItem(rng, this.run.items) : undefined;
     const drop: Drop | null = item ?? (reward === 'coin' ? `coin:${rollCoin(rng.next())}` : reward ? 'energy' : null);
@@ -845,7 +923,7 @@ export default class PlayScene extends Phaser.Scene {
    * walks out before it appears.
    */
   private bossReward(): void {
-    const item = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:boss`)), this.run.items, 'boss');
+    const item = pickItem(new Rng(seedFromString(`${this.roomSeed}:boss`)), this.run.items, 'boss');
     if (!item) return;
     this.run.drops = { ...this.run.drops, [this.here.id]: item };
     const room = this.here.id;
@@ -910,7 +988,7 @@ export default class PlayScene extends Phaser.Scene {
       this.shake.add(0.12);
       const list = this.run.broken?.[this.here.id] ?? [];
       this.run.broken = { ...this.run.broken, [this.here.id]: [...list, b.index] };
-      const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:prop${b.index}`));
+      const rng = new Rng(seedFromString(`${this.roomSeed}:prop${b.index}`));
       if (rng.next() < PROP_COIN_CHANCE) this.dropCoin(rollCoin(rng.next()), p.x, p.y, true);
     }
     p.destroy();
@@ -1032,9 +1110,9 @@ export default class PlayScene extends Phaser.Scene {
       const g = this.passage(link);
       let image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
       if (link.side === 'up') {
-        image = this.add.sprite(g.x + TILE / 2, g.y + WALL, doorAnimKey(CRASH_SITE), 0).setOrigin(0.5, 1);
+        image = this.add.sprite(g.x + TILE / 2, g.y + WALL, doorAnimKey(this.biome), 0).setOrigin(0.5, 1);
       } else {
-        image = this.add.image(g.x, g.y, hatchKey(CRASH_SITE, link.side === 'down' ? 'bottom' : link.side)).setOrigin(0);
+        image = this.add.image(g.x, g.y, hatchKey(this.biome, link.side === 'down' ? 'bottom' : link.side)).setOrigin(0);
       }
       image.setLighting(true).setDepth(1.5);
       const blocker = this.add.zone(g.x, g.y, g.w, g.h).setOrigin(0);
@@ -1051,8 +1129,8 @@ export default class PlayScene extends Phaser.Scene {
         door.blocker = undefined;
       }
       if (door.image instanceof Phaser.GameObjects.Sprite) {
-        if (animate) door.image.play(doorAnimKey(CRASH_SITE));
-        else door.image.setFrame(CRASH_SITE.doorAnim.frames[CRASH_SITE.doorAnim.frames.length - 1]);
+        if (animate) door.image.play(doorAnimKey(this.biome));
+        else door.image.setFrame(this.biome.doorAnim.frames[this.biome.doorAnim.frames.length - 1]);
       } else if (animate) {
         this.tweens.add({ targets: door.image, alpha: 0, duration: 220, ease: 'Quad.In' });
       } else {
@@ -1163,6 +1241,10 @@ export default class PlayScene extends Phaser.Scene {
       this.updateAnimation(time);
       const exit = this.exitLink();
       if (exit) this.leave(exit);
+      else if (this.trapdoor) {
+        const f = this.playerFeet();
+        if (Math.hypot(f.x - this.trapdoor.x, f.y - this.trapdoor.y) < 12) this.descend();
+      }
     }
     if (this.ready) this.enemies.update(time);
     this.updatePickups(time, delta / 1000);
@@ -1177,7 +1259,7 @@ export default class PlayScene extends Phaser.Scene {
       this.hud()!.setBoss(bossFight ? BOSS_NAME : null, 1);
       this.syncMap();
       const title = this.run.from === undefined
-        ? 'Piano 1 — Sito dello schianto'
+        ? this.biome.title
         : this.here.kind === 'treasure'
           ? 'Stanza del tesoro'
           : this.here.kind === 'shop'
@@ -1692,10 +1774,10 @@ export default class PlayScene extends Phaser.Scene {
       row.forEach((cell, c) => {
         if (cell === 'rock') {
           // Obstacle prop standing on the bottom of its cell.
-          const id = rng.pick(CRASH_SITE.obstacles);
+          const id = rng.pick(this.biome.obstacles);
           const x = ROOM_X + c * TILE + TILE / 2;
           const baseY = ROOM_Y + (r + 1) * TILE - 3;
-          const prop = this.addProp(propKey(CRASH_SITE, id), x, baseY, true, id, rng);
+          const prop = this.addProp(propKey(this.biome, id), x, baseY, true, id, rng);
           this.walls.add(prop);
           // The body covers the whole cell, so rocks side by side leave no
           // gaps for the player to wedge into and slide along smoothly.
@@ -1718,12 +1800,12 @@ export default class PlayScene extends Phaser.Scene {
     for (let i = 0; i < decor && freeCells.length; i++) {
       const spot = freeCells.splice(rng.int(0, freeCells.length - 1), 1)[0];
       // Half of the small props are ones that glow (flares, broken visors…).
-      const id = rng.next() < 0.5 ? rng.pick(CRASH_SITE.litDecor) : rng.pick(CRASH_SITE.decor);
+      const id = rng.next() < 0.5 ? rng.pick(this.biome.litDecor) : rng.pick(this.biome.decor);
       const x = ROOM_X + spot.c * TILE + rng.int(8, TILE - 8);
       const baseY = ROOM_Y + spot.r * TILE + rng.int(16, TILE - 4);
-      const prop = this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
+      const prop = this.addProp(propKey(this.biome, id), x, baseY, false, id, rng);
       // Plain debris (not the glowing props) can be shot to pieces.
-      if (!CRASH_SITE.litDecor.includes(id)) this.breakables.push({ prop, index: i, hp: PROP_HP });
+      if (!this.biome.litDecor.includes(id)) this.breakables.push({ prop, index: i, hp: PROP_HP });
     }
     // Props broken on an earlier visit stay broken.
     for (const index of this.run.broken?.[this.here.id] ?? []) {
@@ -1736,8 +1818,8 @@ export default class PlayScene extends Phaser.Scene {
       const spot = edgeCells.splice(rng.int(0, edgeCells.length - 1), 1)[0];
       const x = ROOM_X + spot.c * TILE + TILE / 2;
       const baseY = ROOM_Y + (spot.r + 1) * TILE - 4;
-      const id = rng.pick(CRASH_SITE.crystals);
-      this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
+      const id = rng.pick(this.biome.crystals);
+      this.addProp(propKey(this.biome, id), x, baseY, false, id, rng);
       const used = freeCells.findIndex((f) => f.c === spot.c && f.r === spot.r);
       if (used >= 0) freeCells.splice(used, 1);
     }
@@ -1761,9 +1843,9 @@ export default class PlayScene extends Phaser.Scene {
    */
   private addProp(key: string, x: number, baseY: number, solid: boolean, id?: number, rng?: Rng): Phaser.GameObjects.Image {
     // Props with a drawn animation become looping sprites, each starting on a different frame.
-    if (!solid && id !== undefined && CRASH_SITE.animated[id]) {
-      const sprite = this.add.sprite(x, baseY, propAnimKey(CRASH_SITE, id));
-      sprite.play({ key: propAnimKey(CRASH_SITE, id), startFrame: Math.floor((rng?.next() ?? 0) * 4) });
+    if (!solid && id !== undefined && this.biome.animated[id]) {
+      const sprite = this.add.sprite(x, baseY, propAnimKey(this.biome, id));
+      sprite.play({ key: propAnimKey(this.biome, id), startFrame: Math.floor((rng?.next() ?? 0) * 4) });
       const prop = this.finishProp(sprite as unknown as Phaser.GameObjects.Image, x, baseY, false, id, rng);
       // A flame gives off its own light: draw it at full brightness, not lit by the room.
       prop.setLighting(false);
@@ -1779,9 +1861,9 @@ export default class PlayScene extends Phaser.Scene {
     const baseRow = prop.height - 1;
     this.reflectors.push({ obj: prop, baseRow });
     this.addCaster(prop, baseRow, Math.round(prop.height * 0.8), Math.round(prop.width * 0.85), Math.min(1, prop.width / 30), 4.9);
-    if (id !== undefined) this.propEffects.add(prop, CRASH_SITE.effects[id], rng?.next() ?? Math.random());
+    if (id !== undefined) this.propEffects.add(prop, this.biome.effects[id], rng?.next() ?? Math.random());
     // Glowing props carry a light at their middle, with their own rhythm.
-    const lamp = id === undefined ? undefined : CRASH_SITE.lamps[id];
+    const lamp = id === undefined ? undefined : this.biome.lamps[id];
     if (lamp) {
       const light = this.lights.addLight(x, baseY - prop.height / 2, lamp.radius, lamp.color, lamp.intensity);
       this.glows.push({

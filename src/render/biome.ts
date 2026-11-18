@@ -31,6 +31,10 @@ export interface PropEffect {
 
 export interface Biome {
   key: string;
+  /** Floor title shown on arrival, e.g. "Piano 1 — Sito dello schianto". */
+  title: string;
+  /** Floor tile with a hole in it, drawn under the trapdoor to the next floor. */
+  hole: number;
   /** Floor tile ids with how often each appears. */
   floors: { id: number; weight: number }[];
   /** Stains and scorch marks painted on the floor. */
@@ -62,6 +66,8 @@ export interface Biome {
 
 export const CRASH_SITE: Biome = {
   key: '1-crash',
+  title: 'Piano 1 — Sito dello schianto',
+  hole: 23,
   // Mostly plain slabs; a variant only now and then.
   floors: [
     { id: 0, weight: 60 },
@@ -105,16 +111,58 @@ export const CRASH_SITE: Biome = {
   door: { metal: '#4f5762', metalLight: '#7d8799', dark: '#05070b', stripe: '#ff9a3c', outline: '#0b0d14' },
 };
 
+/**
+ * Floor 2: the hive the larvae built under the wreck. Fleshy stone, resin
+ * veins and egg clutches; glowing yellow eggs light it.
+ */
+export const HIVE: Biome = {
+  key: '2-hive',
+  title: "Piano 2 — L'alveare",
+  hole: 19,
+  floors: [
+    { id: 0, weight: 50 },
+    { id: 1, weight: 6 },
+    { id: 2, weight: 4 },
+    { id: 5, weight: 3 },
+  ],
+  decals: [14, 15, 17, 18],
+  wallFaces: [6, 6, 7, 11],
+  doorClosed: 12,
+  doorAnim: { file: 'door', frames: [0, 1] },
+  obstacles: [0, 0, 1, 1, 2, 5, 12, 18],
+  decor: [4, 6, 7, 8, 9, 11, 15, 16, 21, 22],
+  crystals: [17, 23, 10],
+  lamps: {
+    17: { color: 0xd8e04a, radius: 110, intensity: 0.85, kind: 'pulse' }, // big glowing egg
+    23: { color: 0xd8e04a, radius: 110, intensity: 0.85, kind: 'pulse' }, // glowing egg on a nest
+    10: { color: 0xd8e04a, radius: 55, intensity: 0.7, kind: 'pulse' }, // small glowing egg
+  },
+  litDecor: [10, 10],
+  animated: {},
+  effects: {
+    17: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 500 }],
+    23: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 500 }],
+  },
+  rock: '#140c12',
+  door: { metal: '#4a3a40', metalLight: '#7a5a60', dark: '#07040a', stripe: '#d8e04a', outline: '#0b0d14' },
+};
+
+/** Biome of each floor, from the first; deeper floors reuse the last one until their art exists. */
+export const BIOMES: readonly Biome[] = [CRASH_SITE, HIVE];
+
+export const biomeFor = (floor: number): Biome => BIOMES[Math.min(BIOMES.length, Math.max(1, floor)) - 1];
+
 const tileKey = (b: Biome, id: number) => `${b.key}-tile-${id}`;
 export const propKey = (b: Biome, id: number) => `${b.key}-prop-${id}`;
 
 function ids(b: Biome): { tiles: number[]; props: number[] } {
-  const tiles = new Set([...b.floors.map((f) => f.id), ...b.decals, ...b.wallFaces, b.doorClosed]);
+  const tiles = new Set([...b.floors.map((f) => f.id), ...b.decals, ...b.wallFaces, b.doorClosed, b.hole]);
   const props = new Set([...b.obstacles, ...b.decor, ...b.crystals]);
   return { tiles: [...tiles], props: [...props] };
 }
 
 export const propAnimKey = (b: Biome, id: number) => `${b.key}-anim-${id}`;
+export const holeKey = (b: Biome) => tileKey(b, b.hole);
 export const doorAnimKey = (b: Biome) => `${b.key}-door`;
 /** Closed hatch of a side or bottom door, laid over the open passage. */
 export const hatchKey = (b: Biome, side: 'left' | 'right' | 'bottom') => `${b.key}-hatch-${side}`;
