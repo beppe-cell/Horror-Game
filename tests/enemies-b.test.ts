@@ -40,3 +40,32 @@ describe('bloater', () => {
     expect(puff.spit).toEqual({ x: 1, y: 0 });
   });
 });
+
+describe('room roster', () => {
+  it('uses at most two kinds and respects each cap', async () => {
+    const { roomRoster, MAX_PER_ROOM } = await import('../src/rules/enemies');
+    const { Rng } = await import('../src/rules/rng');
+    for (let seed = 1; seed <= 300; seed++) {
+      const rng = new Rng(seed);
+      const roster = roomRoster(rng, rng.int(3, 9));
+      const kinds = new Set(roster);
+      expect(kinds.size).toBeGreaterThanOrEqual(1);
+      expect(kinds.size).toBeLessThanOrEqual(2);
+      for (const k of kinds) expect(roster.filter((x) => x === k).length).toBeLessThanOrEqual(MAX_PER_ROOM[k]);
+    }
+  });
+
+  it('with a lurker already there, adds only one more kind', async () => {
+    const { roomRoster } = await import('../src/rules/enemies');
+    const { Rng } = await import('../src/rules/rng');
+    for (let seed = 1; seed <= 100; seed++) expect(new Set(roomRoster(new Rng(seed), 5, ['lurker'])).size).toBe(1);
+  });
+
+  it('fills small kinds up to four', async () => {
+    const { roomRoster } = await import('../src/rules/enemies');
+    // First roll 0.99: one kind only; then a low roll picks the crawler.
+    let calls = 0;
+    const rng = { next: () => (calls++ === 0 ? 0.99 : 0.01), int: () => 4 };
+    expect(roomRoster(rng, 6)).toEqual(['crawler', 'crawler', 'crawler', 'crawler']);
+  });
+});

@@ -132,8 +132,17 @@ export class TouchControls {
   }
 
   private onMove(pointer: Phaser.Input.Pointer): void {
-    const stick = this.stickFor(pointer);
-    if (!stick) return;
+    let stick = this.stickFor(pointer);
+    if (!stick) {
+      // A finger already down that no stick owns (its stick was reset, or
+      // its "down" came before the controls were ready): pick it up again.
+      if (!pointer.isDown || !pointer.wasTouch) return;
+      const side = touchSide(pointer.x, this.scene.scale.width) === 'move' ? this.move : this.shoot;
+      if (side.pointerId !== null) return;
+      this.onDown(pointer);
+      stick = this.stickFor(pointer);
+      if (!stick) return;
+    }
     const finger = { x: pointer.x, y: pointer.y };
     stick.origin = followOrigin(stick.origin, finger, this.radius);
     stick.base.setPosition(stick.origin.x, stick.origin.y);

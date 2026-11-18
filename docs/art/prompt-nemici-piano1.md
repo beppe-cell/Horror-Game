@@ -11,7 +11,7 @@ Tre nemici per il sito dello schianto, uno per generazione. Ogni foglio ha **3 r
 
 | Nemico | Nome file |
 |---|---|
-| Strisciante | `1-crawler.png` |
+| Zecca (strisciante) | `1-crawler.png` |
 | Sputatore | `1-spitter.png` |
 | Ex-minatore infetto | `1-miner.png` |
 
@@ -25,7 +25,7 @@ Tre nemici per il sito dello schianto, uno per generazione. Ogni foglio ha **3 r
 
 ---
 
-## 1. Strisciante (zecca aliena), versione 2
+## 1. Zecca aliena (prima: strisciante), versione 2
 
 Piccolo e veloce: corre a scatti sulle zampe e ti salta addosso. È il nemico base. Questa versione sostituisce la larva: è una zecca piatta e cieca, con zampe lunghe e articolate. Ha un addome molle e traslucido che brilla di uova e un muso di chitina con le mandibole aperte in verticale.
 
