@@ -64,7 +64,9 @@ BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. 
 
 Ogni foglio ha **4 righe**, una per oggetto, e **3 colonne**: davanti, di spalle e di lato verso destra. In ogni cella va disegnato **solo il pezzo, senza Vega**, nella posizione esatta in cui starebbe sul suo corpo nel foglio modello. Così il gioco lo appoggia sullo sprite senza spostarlo.
 
-Il prompt è uguale per tutti i fogli: cambia solo il blocco **ROWS**, che trovi nella tabella sotto.
+Ogni prompt qui sotto è **già completo**: copialo tutto, così com'è, in una chat nuova insieme al foglio modello di Vega.
+
+### overlay-1.png
 
 ```
 Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
@@ -76,65 +78,130 @@ LAYOUT: exactly 3 columns by 4 rows of equal square cells, separated only by emp
 Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
 
 ROWS:
-<paste the 4 rows for this sheet here>
-
-BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
-```
-
-### Le righe da incollare al posto di `<paste the 4 rows…>`
-
-**overlay-1:**
-```
 Row 1. PLASMA CORE: a small cylindrical cyan reactor core #39d0ff in a metal cage, strapped on her upper back (visible over the shoulder from the front, fully from the back).
 Row 2. RAPID CAPACITOR: copper coils with a yellow lightning mark #ffd34d wrapped around her blaster.
 Row 3. EXTENDED BARREL: a long finned barrel extension on the tip of her blaster, teal tip #7cf7d4.
 Row 4. LEG SERVOS: off-white mechanical braces with orange joints #ff9a3c on both knees.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
-**overlay-2:**
+### overlay-2.png
+
 ```
+Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
+Pixel art OVERLAY sheet for a top-down 3/4 view sci-fi horror roguelite. Each cell shows ONLY an add-on piece of equipment that Vega wears, drawn exactly where it sits on her body in the reference pose, as if Vega were invisible. Do NOT draw Vega herself: no helmet, no suit, no body, only the add-on.
+
+TRUE pixel art: each cell is exactly 32x32 pixels, the same cell size and the same pixel size as the attached character sheet, upscaled 8x with crisp, square, equal-size pixels. Vega's boot soles would be on the baseline 2 pixels above the bottom of each cell, centered. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14 around each piece. NO glow halo, NO shadow.
+
+LAYOUT: exactly 3 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
+Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
+
+ROWS:
 Row 1. PARTICLE ACCELERATOR: a small green-glowing ring #4dffb0 clipped to her belt on the hip.
 Row 2. CAPTAIN'S COIN: an old golden coin #ffd34d hanging on a thin chain around her neck, on the chest.
 Row 3. ARMOR PLATE: a thick off-white chest plate with an orange hazard stripe #ff9a3c over the suit's chest (and a matching back plate seen from behind).
 Row 4. SHIELD GENERATOR: a disc-shaped device with a pale blue dome #b8f1ff mounted on her left shoulder.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
-**overlay-3:**
+### overlay-3.png
+
 ```
+Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
+Pixel art OVERLAY sheet for a top-down 3/4 view sci-fi horror roguelite. Each cell shows ONLY an add-on piece of equipment that Vega wears, drawn exactly where it sits on her body in the reference pose, as if Vega were invisible. Do NOT draw Vega herself: no helmet, no suit, no body, only the add-on.
+
+TRUE pixel art: each cell is exactly 32x32 pixels, the same cell size and the same pixel size as the attached character sheet, upscaled 8x with crisp, square, equal-size pixels. Vega's boot soles would be on the baseline 2 pixels above the bottom of each cell, centered. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14 around each piece. NO glow halo, NO shadow.
+
+LAYOUT: exactly 3 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
+Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
+
+ROWS:
 Row 1. REFLECTING PRISM: a small triangular violet glass prism #a070ff set into the top of her helmet.
 Row 2. ALIEN CRYSTAL SHARD: a long green crystal spike #4dffb0 growing out of her right shoulder.
 Row 3. TWIN EMITTER: a second short barrel mounted beside her blaster's barrel, cyan tips #39d0ff.
 Row 4. SEEKER CHIP: a small red targeting lens #ff4a5a over the right side of her visor.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
-**overlay-4:**
+### overlay-4.png
+
 ```
+Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
+Pixel art OVERLAY sheet for a top-down 3/4 view sci-fi horror roguelite. Each cell shows ONLY an add-on piece of equipment that Vega wears, drawn exactly where it sits on her body in the reference pose, as if Vega were invisible. Do NOT draw Vega herself: no helmet, no suit, no body, only the add-on.
+
+TRUE pixel art: each cell is exactly 32x32 pixels, the same cell size and the same pixel size as the attached character sheet, upscaled 8x with crisp, square, equal-size pixels. Vega's boot soles would be on the baseline 2 pixels above the bottom of each cell, centered. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14 around each piece. NO glow halo, NO shadow.
+
+LAYOUT: exactly 3 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
+Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
+
+ROWS:
 Row 1. OVERCLOCK: a cracked orange-hot processor #ff9a3c bolted to the side of her blaster, with a wisp of smoke.
 Row 2. NANO-REPAIR: a small green nanobot canister #4dffb0 on her belt at the back.
 Row 3. GRAVITY BOOTS: violet glowing soles and ankle rings #a070ff over her boots.
 Row 4. VEGA'S DOG TAG: a pale grey metal tag #c8ccc4 on a chain around her neck.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
-**overlay-5:**
+### overlay-5.png
+
 ```
+Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
+Pixel art OVERLAY sheet for a top-down 3/4 view sci-fi horror roguelite. Each cell shows ONLY an add-on piece of equipment that Vega wears, drawn exactly where it sits on her body in the reference pose, as if Vega were invisible. Do NOT draw Vega herself: no helmet, no suit, no body, only the add-on.
+
+TRUE pixel art: each cell is exactly 32x32 pixels, the same cell size and the same pixel size as the attached character sheet, upscaled 8x with crisp, square, equal-size pixels. Vega's boot soles would be on the baseline 2 pixels above the bottom of each cell, centered. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14 around each piece. NO glow halo, NO shadow.
+
+LAYOUT: exactly 3 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
+Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
+
+ROWS:
 Row 1. LONG-RANGE SCOPE: a rifle scope with a red lens #ff4a5a on top of her blaster.
 Row 2. ALIEN HEART: a dark red alien organ #8a2a3a fused to the left side of her chest, with grey-violet veins spreading.
 Row 3. BATTERY PACK: a boxy battery with a cyan charge bar #39d0ff on her lower back.
 Row 4. REACTIVE ARMOR: small orange explosive studs #ff9a3c covering her shoulders and forearms.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
-**overlay-6:**
+### overlay-6.png
+
 ```
+Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
+Pixel art OVERLAY sheet for a top-down 3/4 view sci-fi horror roguelite. Each cell shows ONLY an add-on piece of equipment that Vega wears, drawn exactly where it sits on her body in the reference pose, as if Vega were invisible. Do NOT draw Vega herself: no helmet, no suit, no body, only the add-on.
+
+TRUE pixel art: each cell is exactly 32x32 pixels, the same cell size and the same pixel size as the attached character sheet, upscaled 8x with crisp, square, equal-size pixels. Vega's boot soles would be on the baseline 2 pixels above the bottom of each cell, centered. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14 around each piece. NO glow halo, NO shadow.
+
+LAYOUT: exactly 3 columns by 4 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
+Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
+
+ROWS:
 Row 1. COOLANT TANK: a frosty pale blue tank #b8f1ff on her back with a hose to the blaster.
 Row 2. SPORE LENS: a round yellow-green spore membrane lens #d8e04a over the left side of her visor.
 Row 3. BROOD HEART: the Brood Mother's glowing yellow-green egg heart #d8e04a embedded in the center of her chest, thin gold rim #ffd34d.
 Row 4. TRI-EMITTER: three short barrels in a fan on the tip of her blaster, teal #7cf7d4.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
-**overlay-7** (2 righe soltanto: chiedi `exactly 3 columns by 2 rows`):
+### overlay-7.png
+
 ```
+Use the attached image as the exact character reference: the infected astronaut "Vega" (helmet, suit, cape and blaster), her size, pixel size and poses.
+Pixel art OVERLAY sheet for a top-down 3/4 view sci-fi horror roguelite. Each cell shows ONLY an add-on piece of equipment that Vega wears, drawn exactly where it sits on her body in the reference pose, as if Vega were invisible. Do NOT draw Vega herself: no helmet, no suit, no body, only the add-on.
+
+TRUE pixel art: each cell is exactly 32x32 pixels, the same cell size and the same pixel size as the attached character sheet, upscaled 8x with crisp, square, equal-size pixels. Vega's boot soles would be on the baseline 2 pixels above the bottom of each cell, centered. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14 around each piece. NO glow halo, NO shadow.
+
+LAYOUT: exactly 3 columns by 2 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
+Column 1: front view (Vega facing the camera). Column 2: back view (Vega facing away). Column 3: side view (Vega facing RIGHT). Each row is one add-on, the same object seen from the three sides.
+
+ROWS:
 Row 1. QUEEN CARAPACE: grey-violet chitin plates #7e7896 #a9a3bf from the Brood Mother fused over her shoulders and back like armor.
 Row 2. PLASMA OVERDRIVE: a white-hot cyan plasma ring #b8f1ff with small arcs around her blaster arm.
+
+BACKGROUND: one solid flat magenta #FF00FF everywhere, including between cells. Not a checkerboard, not transparent. No text.
 ```
 
 ## Se Gemini non collabora
