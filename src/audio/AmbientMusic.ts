@@ -12,8 +12,8 @@
  *   echo and a big reverb;
  * - ticks: very quiet clicks every couple of seconds, a subtle rhythm.
  *
- * If `public/audio/soundtrack.mp3` exists (a track made elsewhere, for
- * example with Suno), it plays instead, looped without a gap.
+ * If `public/audio/soundtrack.mp3` exists (now "Deep Subsonic Hum", made
+ * with Suno), it plays instead, looped with long crossfades.
  *
  * Browsers only allow sound after a user gesture, so `start()` is called on
  * the first tap or key press.
@@ -21,6 +21,8 @@
 const VOLUME = 0.55;
 /** Recorded soundtrack, used when present; relative to the page. */
 const TRACK_URL = 'audio/soundtrack.mp3';
+/** Seconds of overlap between the end of one pass of the track and the start of the next. */
+const CROSSFADE_S = 6;
 
 /** Notes for the alien tones (A minor, high register), in Hz. */
 const BELL_NOTES = [440, 523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66];
@@ -78,17 +80,41 @@ export class AmbientMusic {
       const res = await fetch(TRACK_URL);
       if (!res.ok || !(res.headers.get('content-type') ?? '').includes('audio')) return false;
       const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
-      const src = ctx.createBufferSource();
-      src.buffer = buffer;
-      src.loop = true;
-      const g = ctx.createGain();
-      g.gain.value = 1.4;
-      src.connect(g).connect(out);
-      src.start();
+      const level = ctx.createGain();
+      level.gain.value = 1.4;
+      level.connect(out);
+      this.crossfadeLoop(ctx, buffer, level);
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Loops a track with crossfades: each pass fades in, plays, and fades out
+   * while the next pass fades in over it, so the loop point never shows.
+   */
+  private crossfadeLoop(ctx: AudioContext, buffer: AudioBuffer, out: AudioNode): void {
+    const fade = Math.min(CROSSFADE_S, buffer.duration / 4);
+    const period = buffer.duration - fade;
+    let next = ctx.currentTime + 0.05;
+    const pass = () => {
+      const at = next;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(1, at + fade);
+      g.gain.setValueAtTime(1, at + buffer.duration - fade);
+      g.gain.linearRampToValueAtTime(0, at + buffer.duration);
+      src.connect(g).connect(out);
+      src.start(at);
+      src.stop(at + buffer.duration + 0.05);
+      next = at + period;
+      // Schedule the next pass a couple of seconds before it is due.
+      this.later(pass, Math.max(0.5, next - ctx.currentTime - 2));
+    };
+    pass();
   }
 
   private synth(ctx: AudioContext, master: AudioNode): void {
