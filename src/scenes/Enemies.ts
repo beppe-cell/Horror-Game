@@ -416,6 +416,11 @@ interface Enemy {
   hidden: boolean;
 }
 
+/** The astronaut's drawn body around its sprite centre, in pixels: half width, helmet top, soles. */
+const PLAYER_HALF_W = 10;
+const PLAYER_TOP = 19;
+const PLAYER_SOLES = 22;
+
 /** Height of player shots above the floor, in pixels (matches PlayScene). */
 const SHOT_FLIGHT_HEIGHT = 16;
 
@@ -516,12 +521,8 @@ export class EnemyManager {
       if (e && !e.hidden) host.hurtPlayer(ENEMIES[e.state.kind].contactDamage, e.sprite.x, e.sprite.y);
     });
     scene.physics.add.overlap(this.spores, host.walls, (spore) => this.popSpore(spore as Phaser.Physics.Arcade.Image));
-    scene.physics.add.overlap(host.player, this.spores, (_p, spore) => {
-      const s = spore as Phaser.Physics.Arcade.Image;
-      if (!s.active) return;
-      host.hurtPlayer(1, s.x, s.y);
-      this.popSpore(s);
-    });
+    // Enemy shots are tested against the astronaut's drawn body in update(),
+    // not the small hitbox at the boots that only serves for walls.
   }
 
   /**
@@ -759,6 +760,33 @@ export class EnemyManager {
         continue;
       }
       if (Math.hypot(s.x - (s.getData('x0') as number), s.y - (s.getData('y0') as number)) > 8 * t) this.popSpore(s);
+    }
+    this.checkShotsOnPlayer();
+  }
+
+  /**
+   * An enemy shot hurts when it touches the astronaut as drawn: the suit
+   * from boots to helmet, not just the hitbox at the feet used for walls.
+   * Mines lie on the floor, so they need the boots to step on them.
+   */
+  private checkShotsOnPlayer(): void {
+    const p = this.host.player;
+    // Player frame 48x48 centred on the sprite: soles on row 46, helmet top near row 10.
+    const k = p.scaleY;
+    const left = p.x - PLAYER_HALF_W * k;
+    const right = p.x + PLAYER_HALF_W * k;
+    const top = p.y - PLAYER_TOP * k;
+    const soles = p.y + PLAYER_SOLES * k;
+    for (const child of this.spores.getChildren()) {
+      const s = child as Phaser.Physics.Arcade.Image;
+      if (!s.active) continue;
+      const r = 2;
+      if (s.x + r < left || s.x - r > right) continue;
+      const mine = s.getData('stopAt') !== undefined;
+      const hit = mine ? s.y + r >= soles - 8 && s.y - r <= soles + 2 : s.y + r >= top && s.y - r <= soles;
+      if (!hit) continue;
+      this.host.hurtPlayer(1, s.x, s.y);
+      this.popSpore(s);
     }
   }
 
