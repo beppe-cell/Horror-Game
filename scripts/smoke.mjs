@@ -132,14 +132,17 @@ try {
     await page.evaluate(() => (window.game.scene.getScene('play').health.invulnerableUntil = 1e12));
     await page.waitForTimeout(2500);
     const boss = await page.evaluate(() => {
-      const b = window.game.scene.getScene('play').enemies.boss;
-      return b && { phase: b.state.phase, hp: b.hp, anim: b.sprite.anims.currentAnim?.key };
+      // Bosses are dealt out per run: either one may guard this floor.
+      const m = window.game.scene.getScene('play').enemies;
+      const b = m.boss ?? m.queen;
+      return b && { kind: m.bossKind, phase: b.state.phase, hp: b.hp, anim: b.sprite.anims.currentAnim?.key };
     });
     await page.screenshot({ path: 'smoke-boss.png' });
     if (!boss || boss.phase === 'wake') errors.push(`[desktop] boss missing or asleep: ${JSON.stringify(boss)}`);
     const won = await page.evaluate(() => {
       const s = window.game.scene.getScene('play');
-      s.enemies.killBoss(s.enemies.boss);
+      if (s.enemies.boss) s.enemies.killBoss(s.enemies.boss);
+      else s.enemies.killQueen(s.enemies.queen);
       return { cleared: s.run.cleared.includes(s.here.id), alive: s.enemies.alive };
     });
     if (!won.cleared || won.alive !== 0) errors.push(`[desktop] boss death did not clear the room: ${JSON.stringify(won)}`);
