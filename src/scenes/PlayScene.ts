@@ -329,9 +329,17 @@ export default class PlayScene extends Phaser.Scene {
       this.shotLights.push(this.lights.addLight(0, 0, SHOT_LIGHT_RADIUS, 0x7cf7d4, 0).setVisible(false));
     }
     this.physics.add.collider(this.player, this.walls);
-    this.physics.add.overlap(this.shots, this.walls, (shot, wall) => {
-      if (!this.bounceShot(shot as Phaser.Physics.Arcade.Image, wall as Phaser.GameObjects.GameObject)) this.killShot(shot as Phaser.Physics.Arcade.Image, true);
-    });
+    // Bolts fly at chest height, so in this 3/4 view they hit a wall or a
+    // rock where their ground point (the shadow) meets it: a bolt fired along
+    // the top wall passes in front of it instead of bursting at once.
+    this.physics.add.overlap(
+      this.shots,
+      this.walls,
+      (shot, wall) => {
+        if (!this.bounceShot(shot as Phaser.Physics.Arcade.Image, wall as Phaser.GameObjects.GameObject)) this.killShot(shot as Phaser.Physics.Arcade.Image, true);
+      },
+      (shot, wall) => this.groundHit(shot as Phaser.Physics.Arcade.Image, wall as Phaser.GameObjects.GameObject) !== null,
+    );
 
     this.sparks = this.add.particles(0, 0, 'px-spark', {
       lifespan: { min: 200, max: 450 },
@@ -638,9 +646,13 @@ export default class PlayScene extends Phaser.Scene {
   /** The room is playable: drop input made while loading and let enemies start their wake-up from now. */
   private becomeReady(time: number): void {
     this.ready = true;
-    this.hud()?.touch.releaseAll();
-    this.shootKeys.clear();
-    this.nextShotAt = time + 150;
+    // Only on a fresh start: when walking through a door the finger is often
+    // still on the stick, and releasing it would leave that touch ignored.
+    if (this.run.from === undefined) {
+      this.hud()?.touch.releaseAll();
+      this.shootKeys.clear();
+      this.nextShotAt = time + 150;
+    }
     this.enemies.rewake(time);
   }
 
@@ -722,13 +734,25 @@ export default class PlayScene extends Phaser.Scene {
    * the velocity flips on the side it came in from, and it keeps the range
    * it had left. Returns false when the shot should break instead.
    */
+  /**
+   * How deep a bolt's ground point is inside a wall or rock body, on each
+   * axis, or null when it is not inside (the bolt only passes in front).
+   */
+  private groundHit(shot: Phaser.Physics.Arcade.Image, wall: Phaser.GameObjects.GameObject): { ox: number; oy: number } | null {
+    const wb = wall.body as Phaser.Physics.Arcade.StaticBody | null;
+    if (!wb) return null;
+    const gx = shot.x;
+    const gy = shot.y + SHOT_HEIGHT;
+    if (gx < wb.x || gx > wb.right || gy < wb.y || gy > wb.bottom) return null;
+    return { ox: Math.min(gx - wb.x, wb.right - gx), oy: Math.min(gy - wb.y, wb.bottom - gy) };
+  }
+
   private bounceShot(shot: Phaser.Physics.Arcade.Image, wall: Phaser.GameObjects.GameObject): boolean {
     if (!shot.active || shot.getData('dropping') || shot.getData('bounces') >= 1 || !hasEffect(this.run.items, 'bounce')) return false;
     const sb = shot.body as Phaser.Physics.Arcade.Body;
-    const wb = wall.body as Phaser.Physics.Arcade.StaticBody | null;
-    if (!wb) return false;
-    const ox = Math.min(sb.right, wb.right) - Math.max(sb.x, wb.x);
-    const oy = Math.min(sb.bottom, wb.bottom) - Math.max(sb.y, wb.y);
+    const hit = this.groundHit(shot, wall);
+    if (!hit) return false;
+    const { ox, oy } = hit;
     const v = sb.velocity;
     this.impactFeedback(shot.x, shot.y, v.x, v.y);
     if (ox < oy) {
