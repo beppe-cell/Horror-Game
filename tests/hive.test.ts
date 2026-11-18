@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { HATCH_MAX, JELLY_WINDUP_MS, SLIME_BIG, SLIME_SIZES, newEnemy, roomRoster, stepEnemy, weightsFor } from '../src/rules/enemies';
 import { MAX_SWARM, QUEEN_ORDER, newQueen, nextQueenAttack, stepQueen } from '../src/rules/queen';
 import { Rng } from '../src/rules/rng';
-import { BOSS_KINDS, bossFor } from '../src/rules/bosses';
+import { BOSS_KINDS, KIT_BOSSES, bossFor } from '../src/rules/bosses';
+import { newKit, stepKit } from '../src/rules/bossKit';
 
 describe('hive enemies', () => {
   it('floors mostly hold their own kinds, but any kind can appear anywhere', () => {
@@ -113,6 +114,40 @@ describe('bosses', () => {
     for (const roll of [0, 0.3, 0.6, 0.99]) {
       for (let f = 1; f < 6; f++) expect(bossFor(roll, f)).not.toBe(bossFor(roll, f + 1));
     }
-    expect(new Set([bossFor(0, 1), bossFor(0.99, 1)]).size).toBe(BOSS_KINDS.length);
+    // A whole run of floors meets every boss once before any repeats.
+    for (const roll of [0.1, 0.5, 0.9]) {
+      expect(new Set(BOSS_KINDS.map((_, i) => bossFor(roll, i + 1))).size).toBe(BOSS_KINDS.length);
+    }
+    expect(new Set([0.1, 0.3, 0.5, 0.7, 0.9].map((r) => bossFor(r, 1))).size).toBeGreaterThan(1);
+  });
+});
+
+describe('attack-list bosses', () => {
+  for (const [name, def] of Object.entries(KIT_BOSSES)) {
+    it(`${name} goes through all its attacks and fires`, () => {
+      let s = newKit(0);
+      let shots = 0;
+      let started = 0;
+      for (let t = 0; t < 60000; t += 50) {
+        const step = stepKit(def, s, { x: 0, y: 0 }, { x: 3, y: 1 }, t, 1, 0);
+        shots += step.shots?.length ?? 0;
+        if (step.state.attacks > s.attacks) started++;
+        s = step.state;
+      }
+      expect(started).toBeGreaterThanOrEqual(def.attacks.length);
+      expect(shots).toBeGreaterThan(0);
+    });
+  }
+
+  it('a teleport comes back where the astronaut stood', () => {
+    const def = KIT_BOSSES.oracle;
+    let s = newKit(0);
+    let emerged: { x: number; y: number } | undefined;
+    for (let t = 0; t < 20000 && !emerged; t += 50) {
+      const step = stepKit(def, s, { x: 0, y: 0 }, { x: 4, y: 2 }, t, 1, 0);
+      if (step.emerge) emerged = step.emerge.at;
+      s = step.state;
+    }
+    expect(emerged).toEqual({ x: 4, y: 2 });
   });
 });

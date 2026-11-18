@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
-import { BASH_DAMAGE, BASH_RANGE, BLOAT_RING, JELLY_PULSE_RADIUS, SLIME_BIG, SLIME_SIZES, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../rules/enemies';
-import type { BossKind } from '../rules/bosses';
+import { BASH_DAMAGE, BASH_RANGE, BLOAT_RING, GOLEM_DAMAGE, GOLEM_RANGE, GOLEM_SHARDS, MINE_LIFE_MS, SPEAR_SPEED, JELLY_PULSE_RADIUS, SLIME_BIG, SLIME_SIZES, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../rules/enemies';
+import { KIT_BOSSES, type BossKind } from '../rules/bosses';
+import { KitDef, KitState, newKit, stepKit, KIT_WAKE_MS } from '../rules/bossKit';
 import { QUEEN_BODY, QUEEN_CONTACT_DAMAGE, QUEEN_HP, QUEEN_WAKE_MS, QueenState, SPIT_SPREAD, newQueen, stepQueen } from '../rules/queen';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
@@ -139,7 +140,123 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
       death: { frames: [14, 15, 16, 17], fps: 8, loop: false },
     },
   },
+  hunter: {
+    w: 40,
+    h: 45,
+    // Feet on row 44.
+    base: 44,
+    scale: 0.75,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 9, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 12, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 8, loop: false },
+    },
+  },
+  fungus: {
+    w: 38,
+    h: 39,
+    base: 38,
+    scale: 0.75,
+    anims: {
+      idle: { frames: [0, 1, 2, 3, 4, 5], fps: 5, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 9, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
+  golem: {
+    w: 38,
+    h: 43,
+    // Feet on row 38 when walking; the slam row is drawn a little lower.
+    base: 39,
+    scale: 0.9,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 5, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 8, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
 };
+
+type KitKind = keyof typeof KIT_BOSSES;
+type Anim = { frames: number[]; fps: number; loop: boolean };
+const death: Anim = { frames: [20, 21, 22, 23], fps: 5, loop: false };
+/**
+ * Sheets of the bosses made from attack lists: 6x4 grids cleaned by
+ * `npm run boss`. `front` bosses face the viewer and never turn.
+ */
+const KIT_SHEETS: Record<KitKind, { w: number; h: number; scale: number; base: number; facesLeft?: boolean; front?: boolean; anims: Record<string, Anim> }> = {
+  colossus: {
+    w: 52,
+    h: 53,
+    scale: 1.3,
+    base: 52,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
+      cannon: { frames: [6, 7, 8, 9, 10, 11], fps: 10, loop: false },
+      drill: { frames: [12, 13, 14], fps: 12, loop: true },
+      overheat: { frames: [15, 16, 17], fps: 4, loop: true },
+      death,
+    },
+  },
+  oracle: {
+    w: 53,
+    h: 47,
+    scale: 1.3,
+    // It floats: the ground is below its drawing.
+    base: 52,
+    front: true,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 6, loop: true },
+      beams: { frames: [6, 7, 8, 9, 10, 11], fps: 8, loop: true },
+      out: { frames: [12, 13, 14], fps: 8, loop: false },
+      in: { frames: [15, 16, 17], fps: 8, loop: false },
+      death,
+    },
+  },
+  warlord: {
+    w: 52,
+    h: 53,
+    scale: 1.25,
+    base: 51,
+    facesLeft: true,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
+      lunge: { frames: [6, 7, 8, 9, 10, 11], fps: 12, loop: false },
+      spears: { frames: [12, 13, 14], fps: 6, loop: false },
+      cry: { frames: [15, 16, 17], fps: 5, loop: false },
+      death,
+    },
+  },
+  amalgam: {
+    w: 53,
+    h: 52,
+    scale: 1.3,
+    base: 49,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 6, loop: true },
+      lash: { frames: [6, 7, 8, 9, 10, 11], fps: 9, loop: false },
+      melt: { frames: [12, 13, 14], fps: 6, loop: false },
+      reform: { frames: [15, 16, 17], fps: 6, loop: false },
+      death,
+    },
+  },
+  reactor: {
+    w: 53,
+    h: 53,
+    scale: 1.2,
+    base: 56,
+    front: true,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 8, loop: true },
+      nova: { frames: [6, 7, 8, 9, 10, 11], fps: 8, loop: true },
+      arc: { frames: [12, 13, 14], fps: 10, loop: true },
+      cool: { frames: [15, 16, 17], fps: 4, loop: true },
+      death,
+    },
+  },
+};
+const kitKey = (k: KitKind) => `boss-${k}`;
+const isKit = (k: BossKind): k is KitKind => k in KIT_BOSSES;
 
 /** Faces a sprite left or right; sheets are drawn facing right unless `facesLeft`. */
 function face(sprite: Phaser.GameObjects.Sprite, kind: EnemyKind, left: boolean): void {
@@ -184,6 +301,14 @@ const BOSS_ANIMS: Record<string, { frames: number[]; fps: number; loop: boolean 
 const BOSS_BASE_ROW = 25;
 
 function createBossAnims(scene: Phaser.Scene): void {
+  for (const [kind, sheet] of Object.entries(KIT_SHEETS) as [KitKind, (typeof KIT_SHEETS)[KitKind]][]) {
+    attachNormalMap(scene, kitKey(kind));
+    for (const [name, a] of Object.entries(sheet.anims)) {
+      const key = `${kitKey(kind)}-${name}`;
+      if (scene.anims.exists(key)) continue;
+      scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(kitKey(kind), { frames: a.frames }), frameRate: a.fps, repeat: a.loop ? -1 : 0 });
+    }
+  }
   attachNormalMap(scene, QUEEN_KEY);
   for (const [name, a] of Object.entries(QUEEN_ANIMS)) {
     const key = `queen-${name}`;
@@ -204,6 +329,9 @@ export function preloadEnemies(scene: Phaser.Scene): void {
   }
   scene.load.spritesheet(BOSS_KEY, 'sprites/bosses/brood-mother.png', { frameWidth: BOSS_W, frameHeight: BOSS_H });
   scene.load.spritesheet(QUEEN_KEY, 'sprites/bosses/queen.png', { frameWidth: QUEEN_W, frameHeight: QUEEN_H });
+  for (const [kind, sheet] of Object.entries(KIT_SHEETS)) {
+    scene.load.spritesheet(kitKey(kind as KitKind), `sprites/bosses/${kind}.png`, { frameWidth: sheet.w, frameHeight: sheet.h });
+  }
 }
 
 function createEnemyAnims(scene: Phaser.Scene): void {
@@ -260,6 +388,16 @@ interface Boss {
   burrowFrom?: { x: number; y: number };
 }
 
+interface KitBoss {
+  kind: KitKind;
+  def: KitDef;
+  sprite: Phaser.Physics.Arcade.Sprite;
+  state: KitState;
+  hp: number;
+  flashUntil: number;
+  anim: string;
+}
+
 interface Queen {
   sprite: Phaser.Physics.Arcade.Sprite;
   state: QueenState;
@@ -291,6 +429,7 @@ export class EnemyManager {
   private enemies: Enemy[] = [];
   private boss?: Boss;
   private queen?: Queen;
+  private kit?: KitBoss;
   /** Which floor: picks the enemy mix. */
   floor = 1;
   /** Which boss this floor's boss room holds. */
@@ -371,6 +510,8 @@ export class EnemyManager {
       if (b && sprite === b.sprite) host.hurtPlayer(BOSS_CONTACT_DAMAGE, b.sprite.x, b.sprite.y);
       const q = this.queen;
       if (q && sprite === q.sprite) host.hurtPlayer(QUEEN_CONTACT_DAMAGE, q.sprite.x, q.sprite.y);
+      const k = this.kit;
+      if (k && sprite === k.sprite && k.sprite.visible) host.hurtPlayer(k.def.contactDamage, k.sprite.x, k.sprite.y);
       const e = this.find(sprite as Phaser.Physics.Arcade.Sprite);
       if (e && !e.hidden) host.hurtPlayer(ENEMIES[e.state.kind].contactDamage, e.sprite.x, e.sprite.y);
     });
@@ -393,6 +534,7 @@ export class EnemyManager {
     }
     if (this.boss && this.boss.state.phase === 'wake') this.boss.state = { ...this.boss.state, until: now + BOSS_WAKE_MS };
     if (this.queen && this.queen.state.phase === 'wake') this.queen.state = { ...this.queen.state, until: now + QUEEN_WAKE_MS };
+    if (this.kit && this.kit.state.phase === 'wake') this.kit.state = { ...this.kit.state, until: now + KIT_WAKE_MS };
   }
 
   /** Where the enemies that can be hit stand (feet), for homing bolts. */
@@ -400,17 +542,39 @@ export class EnemyManager {
     const list = this.enemies.filter((e) => !e.hidden).map((e) => ({ x: e.sprite.x, y: e.sprite.y }));
     if (this.boss?.sprite.visible) list.push({ x: this.boss.sprite.x, y: this.boss.sprite.y });
     if (this.queen) list.push({ x: this.queen.sprite.x, y: this.queen.sprite.y });
+    if (this.kit?.sprite.visible) list.push({ x: this.kit.sprite.x, y: this.kit.sprite.y });
     return list;
   }
 
   get alive(): number {
-    return this.enemies.length + (this.boss ? 1 : 0) + (this.queen ? 1 : 0);
+    return this.enemies.length + (this.boss ? 1 : 0) + (this.queen ? 1 : 0) + (this.kit ? 1 : 0);
   }
 
   /** The floor's boss, standing with her feet at (x, baseY). */
   spawnBoss(x: number, baseY: number): void {
-    if (this.bossKind === 'queen') this.spawnQueen(x, baseY);
+    if (isKit(this.bossKind)) this.spawnKit(this.bossKind, x, baseY);
+    else if (this.bossKind === 'queen') this.spawnQueen(x, baseY);
     else this.spawnBrood(x, baseY);
+  }
+
+  private spawnKit(kind: KitKind, x: number, baseY: number): void {
+    const { scene } = this.host;
+    const sheet = KIT_SHEETS[kind];
+    const def = KIT_BOSSES[kind];
+    const key = kitKey(kind);
+    const sprite = scene.physics.add.sprite(x, baseY, key, 0);
+    sprite.setOrigin(0.5, (sheet.base + 1) / sheet.h).setScale(sheet.scale).setLighting(true).setDepth(this.host.depthAt(baseY));
+    sprite.play(`${key}-move`);
+    sprite.anims.timeScale = 0.3;
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    const bw = def.body.w / sheet.scale;
+    const bh = def.body.h / sheet.scale;
+    body.setSize(bw, bh).setOffset((sheet.w - bw) / 2, Math.min(sheet.h, sheet.base + 1) - bh);
+    body.setImmovable(true);
+    body.pushable = false;
+    this.group.add(sprite);
+    this.host.track(sprite, Math.min(sheet.base, sheet.h - 1), Math.round(sheet.h * sheet.scale * 0.85), Math.round(sheet.w * sheet.scale * 0.7));
+    this.kit = { kind, def, sprite, state: newKit(scene.time.now), hp: def.hp * this.hpScale, flashUntil: 0, anim: 'move' };
   }
 
   private spawnQueen(x: number, baseY: number): void {
@@ -491,7 +655,7 @@ export class EnemyManager {
     const def = ENEMIES[kind];
     const sprite = scene.physics.add.sprite(x, baseY, `en-${kind}`, 0);
     // Start each enemy on a different frame so they do not move in step.
-    const first = kind === 'spitter' || kind === 'lurker' || kind === 'cocoon' ? 'idle' : 'move';
+    const first = SHEETS[kind].anims.move ? 'move' : 'idle';
     sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
     const scale = kind === 'slime' ? SLIME_SIZES[size].scale : (SHEETS[kind].scale ?? 1);
     const base = SHEETS[kind].base ?? sprite.height - 1;
@@ -517,6 +681,7 @@ export class EnemyManager {
     this.checkShots();
     this.updateBoss(time);
     this.updateQueen(time);
+    this.updateKit(time);
     const t = this.host.tile;
     const feet = this.host.playerFeet();
     for (const e of this.enemies) {
@@ -536,7 +701,7 @@ export class EnemyManager {
       }
       e.sprite.setVelocity(vx, vy);
       const kind = e.state.kind;
-      if (kind === 'cocoon') {
+      if (kind === 'cocoon' || kind === 'fungus') {
         // Rooted: never turns.
       } else if (Math.abs(vx) > 1) face(e.sprite, kind, vx < 0);
       else if (step.anim === 'attack' || kind === 'guardian') face(e.sprite, kind, feet.x < e.sprite.x);
@@ -547,6 +712,20 @@ export class EnemyManager {
       }
       if (step.hatch) this.hatch(e, step.hatch);
       if (step.pulse) this.pulse(e);
+      if (step.spear) {
+        // A fast spear, thrown from shoulder height.
+        const sy = e.sprite.y - e.sprite.displayHeight * 0.6;
+        const d = Math.hypot(feet.x - e.sprite.x, feet.y - 14 - sy) || 1;
+        const v = SPEAR_SPEED * t;
+        this.launchSpore(e.sprite.x, sy, ((feet.x - e.sprite.x) / d) * v, ((feet.y - 14 - sy) / d) * v, 0x9af8ff, 'en-spear');
+      }
+      if (step.mines) this.scatterMines(e, step.mines);
+      if (step.slam) {
+        this.dirt.explode(20, e.sprite.x, e.sprite.y);
+        this.host.shakeAdd(0.3);
+        if (Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) <= GOLEM_RANGE * t) this.host.hurtPlayer(GOLEM_DAMAGE, e.sprite.x, e.sprite.y);
+        this.shardRing(e.sprite.x, e.sprite.y - 10, GOLEM_SHARDS, Math.random());
+      }
       if (step.spit) this.fireSpore(e, step.spit);
       if (step.fan) {
         // Red bolts from the drone's eye.
@@ -568,10 +747,18 @@ export class EnemyManager {
       this.animate(e, step.anim, time);
       e.sprite.setDepth(this.host.depthAt(e.sprite.y));
     }
-    // Spores die after flying 8 tiles.
+    // Spores die after flying 8 tiles; mines stop where they land and burst after a while.
     for (const child of this.spores.getChildren()) {
       const s = child as Phaser.Physics.Arcade.Image;
-      if (s.active && Math.hypot(s.x - (s.getData('x0') as number), s.y - (s.getData('y0') as number)) > 8 * t) this.popSpore(s);
+      if (!s.active) continue;
+      const stopAt = s.getData('stopAt') as number | undefined;
+      if (stopAt !== undefined) {
+        if (time >= stopAt) s.setVelocity(0, 0);
+        if (time >= (s.getData('until') as number)) this.popSpore(s);
+        else s.setAlpha(0.6 + 0.4 * Math.sin(time / 120));
+        continue;
+      }
+      if (Math.hypot(s.x - (s.getData('x0') as number), s.y - (s.getData('y0') as number)) > 8 * t) this.popSpore(s);
     }
   }
 
@@ -648,17 +835,45 @@ export class EnemyManager {
     void dir;
   }
 
-  private launchSpore(x: number, y: number, vx: number, vy: number, tint?: number): void {
+  private launchSpore(x: number, y: number, vx: number, vy: number, tint?: number, texture = 'en-spore'): Phaser.Physics.Arcade.Image | null {
     const spore = this.spores.get(x, y) as Phaser.Physics.Arcade.Image | null;
-    if (!spore) return;
+    if (!spore) return null;
     spore.enableBody(true, x, y, true, true);
+    spore.setTexture(texture).setAlpha(1);
+    spore.setRotation(texture === 'en-spore' ? 0 : Math.atan2(vy, vx));
     spore.setDepth(12).setBlendMode(Phaser.BlendModes.ADD);
     spore.body!.setSize(6, 6);
-    spore.setData('x0', x).setData('y0', y);
+    spore.setData('x0', x).setData('y0', y).setData('stopAt', undefined).setData('until', undefined);
     spore.setVelocity(vx, vy);
     if (tint === undefined) spore.clearTint();
     else spore.setTint(tint);
     this.sporePuff.explode(5, x, y);
+    return spore;
+  }
+
+  /** Spore mines: lobbed around the fungus, they sit on the floor and burst on touch. */
+  private scatterMines(e: Enemy, count: number): void {
+    const now = this.host.scene.time.now;
+    const t = this.host.tile;
+    const { x: bx, y: by, w: bw, h: bh } = this.host.bounds;
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = (1.2 + Math.random() * 1.6) * t;
+      const tx = Phaser.Math.Clamp(e.sprite.x + Math.cos(a) * r, bx + 10, bx + bw - 10);
+      const ty = Phaser.Math.Clamp(e.sprite.y + Math.sin(a) * r * 0.7, by + 10, by + bh - 6);
+      const flight = 500;
+      const mine = this.launchSpore(e.sprite.x, e.sprite.y - 14, ((tx - e.sprite.x) / flight) * 1000, ((ty - e.sprite.y + 14) / flight) * 1000, 0x4dffb0);
+      mine?.setData('stopAt', now + flight).setData('until', now + flight + MINE_LIFE_MS);
+    }
+  }
+
+  /** A ring of resin shards, as from the golem's slam. */
+  private shardRing(x: number, y: number, count: number, turn: number): void {
+    const v = 3 * this.host.tile;
+    for (let i = 0; i < count; i++) {
+      const a = turn + (i / count) * Math.PI * 2;
+      this.launchSpore(x, y, Math.cos(a) * v, Math.sin(a) * v, 0xffb040, 'en-shard');
+    }
   }
 
   private popSpore(spore: Phaser.Physics.Arcade.Image): void {
@@ -684,6 +899,11 @@ export class EnemyManager {
       const q = this.queen;
       if (q && hits(shot, q.sprite.x, q.sprite.y, q.sprite.displayWidth * 0.75, q.sprite.displayHeight * 0.85)) {
         this.onQueenShot(shot, q);
+        continue;
+      }
+      const k = this.kit;
+      if (k && k.sprite.visible && hits(shot, k.sprite.x, k.sprite.y, k.sprite.displayWidth * 0.7, k.sprite.displayHeight * 0.85)) {
+        this.onKitShot(shot, k);
         continue;
       }
       for (const e of this.enemies) {
@@ -715,6 +935,12 @@ export class EnemyManager {
     e.hp -= this.host.shotDamage();
     const now = this.host.scene.time.now;
     e.flashUntil = now + 70;
+    // Resin chips off the golem now and then, flying back.
+    if (e.state.kind === 'golem' && e.hp > 0 && Math.random() < 0.3) {
+      const a = Math.atan2(-v.y, -v.x) + (Math.random() - 0.5) * 1.2;
+      const sv = 3 * this.host.tile;
+      this.launchSpore(e.sprite.x, e.sprite.y - 16, Math.cos(a) * sv, Math.sin(a) * sv, 0xffb040, 'en-shard');
+    }
     if (ENEMIES[e.state.kind].speed > 0) {
       e.knockUntil = now + 90;
       e.knock = { x: (v.x / len) * 140, y: (v.y / len) * 140 };
@@ -753,7 +979,7 @@ export class EnemyManager {
     sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
       this.host.scene.tweens.add({ targets: sprite, alpha: 0, delay: 900, duration: 700, onComplete: () => sprite.destroy() });
     });
-    if (this.enemies.length === 0 && !this.boss && !this.queen) this.onCleared?.();
+    if (this.enemies.length === 0 && !this.boss && !this.queen && !this.kit) this.onCleared?.();
   }
 
   /** A slime splits in two smaller, faster ones; the old blob plays its split and fades. */
@@ -918,6 +1144,105 @@ export class EnemyManager {
     if (Math.random() < 0.15 + 0.5 * p) this.dirt.explode(2, x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r * 0.5);
   }
 
+  private onKitShot(shot: Phaser.Physics.Arcade.Image, k: KitBoss): void {
+    if (this.alreadyHit(shot, k)) return;
+    this.host.shotHit(shot, shot.x, shot.y, this.host.pierce());
+    k.hp -= this.host.shotDamage();
+    k.flashUntil = this.host.scene.time.now + 70;
+    this.onBossHealth?.(Math.max(0, k.hp / (k.def.hp * this.hpScale)));
+    if (k.hp <= 0) this.killKit(k);
+  }
+
+  /** Bosses made from attack lists (rules/bossKit.ts): moving, shooting, charging, vanishing. */
+  private updateKit(time: number): void {
+    const k = this.kit;
+    if (!k) return;
+    const t = this.host.tile;
+    const s = k.sprite;
+    const body = s.body as Phaser.Physics.Arcade.Body;
+    const sheet = KIT_SHEETS[k.kind];
+    const feet = this.host.playerFeet();
+    const step = stepKit(k.def, k.state, { x: s.x / t, y: s.y / t }, { x: feet.x / t, y: feet.y / t }, time, k.hp / (k.def.hp * this.hpScale), this.enemies.length);
+    k.state = step.state;
+    const { x: bx, y: by, w: bw, h: bh } = this.host.bounds;
+    if (step.hidden) {
+      if (s.visible && k.state.phase === 'hidden' && !s.anims.isPlaying) {
+        s.setVisible(false);
+        body.enable = false;
+      }
+      s.setVelocity(0, 0);
+    } else s.setVelocity(step.velocity.x * t, step.velocity.y * t);
+    if (step.emerge) {
+      s.x = Phaser.Math.Clamp(step.emerge.at.x * t, bx + 40, bx + bw - 40);
+      s.y = Phaser.Math.Clamp(step.emerge.at.y * t, by + 12, by + bh - 4);
+      s.setVisible(true);
+      body.enable = true;
+      body.reset(s.x, s.y);
+      this.dirt.explode(24, s.x, s.y);
+      this.host.shakeAdd(0.5);
+      if (Math.hypot(feet.x - s.x, feet.y - s.y) < step.emerge.radius * t) this.host.hurtPlayer(step.emerge.damage, s.x, s.y + 10);
+    }
+    this.drawWarning(step.warning, time);
+    if (!sheet.front && !step.hidden) {
+      const vx = step.velocity.x;
+      const left = Math.abs(vx) > 0.1 && k.state.phase === 'act' ? vx < 0 : feet.x < s.x;
+      s.setFlipX(left !== !!sheet.facesLeft);
+    }
+    if (step.anim !== k.anim) {
+      k.anim = step.anim;
+      if (sheet.anims[step.anim]) s.play(`${kitKey(k.kind)}-${step.anim}`);
+    }
+    s.anims.timeScale = k.state.phase === 'wake' ? 0.3 : 1;
+    if (step.shots) {
+      const y = s.y - s.displayHeight * 0.55;
+      for (const shot of step.shots) {
+        const v = shot.speed * t;
+        this.launchSpore(s.x, y, shot.dir.x * v, shot.dir.y * v, shot.tint);
+      }
+      this.host.shakeAdd(0.12);
+    }
+    if (step.slam) {
+      this.dirt.explode(30, s.x, s.y);
+      this.host.shakeAdd(0.45);
+      if (Math.hypot(feet.x - s.x, feet.y - s.y) <= step.slam.radius * t) this.host.hurtPlayer(step.slam.damage, s.x, s.y);
+    }
+    if (step.summon) {
+      for (let i = 0; i < step.summon.count; i++) {
+        const a = (i / step.summon.count) * Math.PI * 2 + Math.random();
+        const x = Phaser.Math.Clamp(s.x + Math.cos(a) * 50, bx + 12, bx + bw - 12);
+        const y = Phaser.Math.Clamp(s.y + Math.sin(a) * 30, by + 14, by + bh - 4);
+        const e = this.add(step.summon.enemy, x, y, Math.random());
+        e.state = { ...e.state, until: time + 400 };
+        this.sporePuff.explode(12, x, y - 12);
+      }
+    }
+    if (k.state.phase === 'act' && Math.abs(step.velocity.x) + Math.abs(step.velocity.y) > 3 && Math.random() < 0.35) this.dirt.explode(3, s.x, s.y);
+    if (time < k.flashUntil) s.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else if (step.windup) {
+      const kk = 0.5 + 0.5 * Math.sin(time / 45);
+      const g = Math.round(255 - 140 * kk);
+      s.setTint((255 << 16) | (g << 8) | g).setTintMode(Phaser.TintModes.MULTIPLY);
+    } else s.clearTint();
+    s.setDepth(this.host.depthAt(s.y));
+  }
+
+  private killKit(k: KitBoss): void {
+    for (const e of [...this.enemies]) this.kill(e);
+    this.kit = undefined;
+    this.warn?.setVisible(false);
+    const s = k.sprite;
+    s.setVisible(true).clearTint().setVelocity(0, 0);
+    s.disableBody(true, false);
+    s.anims.timeScale = 1;
+    s.play(`${kitKey(k.kind)}-death`);
+    s.setDepth(this.host.depthAt(s.y) - 0.02);
+    this.goo.explode(50, s.x, s.y - 30);
+    this.host.shakeAdd(0.9);
+    this.host.untrack(s);
+    this.onBossHealth?.(0);
+    this.onCleared?.();
+  }
+
   private onQueenShot(shot: Phaser.Physics.Arcade.Image, q: Queen): void {
     if (this.alreadyHit(shot, q)) return;
     this.host.shotHit(shot, shot.x, shot.y, this.host.pierce());
@@ -1032,8 +1357,21 @@ function hits(shot: Phaser.Physics.Arcade.Image, x: number, feetY: number, w: nu
   return inShape || onFootprint;
 }
 
-/** The spore the spitter fires: a small glowing ball. */
+/** The spore the spitter fires: a small glowing ball; also the hunter's spear and resin shards. */
 function makeSporeTexture(scene: Phaser.Scene): void {
+  if (!scene.textures.exists('en-spear')) {
+    const g = scene.add.graphics();
+    g.fillStyle(0xc8b898).fillRect(0, 1, 9, 1);
+    g.fillStyle(0x9af8ff).fillRect(9, 0, 3, 3);
+    g.fillStyle(0xffffff).fillRect(10, 1, 2, 1);
+    g.generateTexture('en-spear', 12, 3).destroy();
+  }
+  if (!scene.textures.exists('en-shard')) {
+    const g = scene.add.graphics();
+    g.fillStyle(0x8a6a30).fillRect(0, 1, 5, 2);
+    g.fillStyle(0xffe0a0).fillRect(1, 0, 3, 2);
+    g.generateTexture('en-shard', 5, 3).destroy();
+  }
   if (!scene.textures.exists('en-spore')) {
     const g = scene.add.graphics();
     g.fillStyle(0xa0b030).fillRect(1, 1, 5, 5);
