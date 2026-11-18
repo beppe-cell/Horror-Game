@@ -20,44 +20,32 @@ export function itemTexture(id: ItemId): { key: string; frame: number } {
 export function preloadItemArt(scene: Phaser.Scene): void {
   scene.load.spritesheet(ITEMS_KEY, 'sprites/items/items.png', { frameWidth: 42, frameHeight: 36 });
   scene.load.spritesheet(ITEMS2_KEY, 'sprites/items/items2.png', { frameWidth: 43, frameHeight: 42 });
+  scene.load.spritesheet(COINS_KEY, 'sprites/items/coins.png', { frameWidth: 21, frameHeight: 19 });
+  for (const name of SHOP_PROPS) scene.load.image(`shop-${name}`, `sprites/items/${name}.png`);
   for (const [key, sheet] of Object.entries(OVERLAY_BOXES)) {
     scene.load.spritesheet(key, `sprites/items/${key}.png`, { frameWidth: sheet.w, frameHeight: sheet.h });
   }
 }
 
 export const COINS_KEY = 'coins';
-/** Frame of each coin kind on the `coins` sheet. */
-export const COIN_FRAME = { shard: 0, chip: 1, core: 2 } as const;
+/** First frame of each coin's 6-frame spin on the `coins` sheet (rows: green, blue, gold). */
+export const COIN_FRAME = { shard: 0, chip: 6, core: 12 } as const;
+export const coinSpinKey = (kind: keyof typeof COIN_FRAME) => `coin-spin-${kind}`;
 
-/**
- * Stand-in coin art (16×16 frames) until the Gemini sheet arrives: the same
- * round alien coin with a glyph, in green (1), blue (5) and gold (10).
- */
-export function makeCoinArt(scene: Phaser.Scene): void {
-  if (scene.textures.exists(COINS_KEY)) return;
-  const canvas = scene.textures.createCanvas(COINS_KEY, 48, 16)!;
-  const ctx = canvas.context;
-  const px = (c: string, x: number, y: number, w = 1, h = 1) => {
-    ctx.fillStyle = c;
-    ctx.fillRect(x, y, w, h);
-  };
-  const palettes = [
-    ['#1f8a5a', '#4dffb0', '#b8ffe0'],
-    ['#2f6fd0', '#39d0ff', '#b8f1ff'],
-    ['#b8862a', '#ffd34d', '#fff0b0'],
-  ];
-  palettes.forEach(([dark, mid, light], i) => {
-    const o = i * 16;
-    px('#0b0d14', o + 4, 3, 8, 10);
-    px('#0b0d14', o + 3, 4, 10, 8);
-    px(dark, o + 4, 4, 8, 8);
-    px(mid, o + 5, 5, 6, 6);
-    px(light, o + 5, 4, 3, 1);
-    // The alien glyph: three prongs.
-    px(dark, o + 7, 6, 2, 4);
-    px(dark, o + 6, 6, 1, 1);
-    px(dark, o + 9, 6, 1, 1);
-  });
-  canvas.refresh();
-  for (let i = 0; i < 3; i++) canvas.add(i, 0, i * 16, 0, 16, 16);
+/** Shop furniture: a vending terminal, a dispenser and a hanging sign. */
+export const SHOP_PROPS = ['terminal', 'dispenser', 'sign'] as const;
+
+/** Spin animations of the three coins (once per game). */
+export function makeCoinAnims(scene: Phaser.Scene): void {
+  for (const kind of Object.keys(COIN_FRAME) as (keyof typeof COIN_FRAME)[]) {
+    const key = coinSpinKey(kind);
+    if (scene.anims.exists(key)) continue;
+    const start = COIN_FRAME[kind];
+    scene.anims.create({
+      key,
+      frames: scene.anims.generateFrameNumbers(COINS_KEY, { start, end: start + 5 }),
+      frameRate: 10,
+      repeat: -1,
+    });
+  }
 }

@@ -19,7 +19,7 @@ import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health
 import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
 import { COIN_NAME, COIN_VALUE, CoinKind, PRICE, PROP_COIN_CHANCE, PROP_HP, rollCoin } from '../rules/coins';
-import { COINS_KEY, COIN_FRAME, ITEMS2_KEY, ITEMS_KEY, itemTexture, makeCoinArt, preloadItemArt } from '../render/itemIcons';
+import { COINS_KEY, COIN_FRAME, ITEMS2_KEY, ITEMS_KEY, SHOP_PROPS, coinSpinKey, itemTexture, makeCoinAnims, preloadItemArt } from '../render/itemIcons';
 import { ItemAuras } from '../render/ItemAuras';
 import { OVERLAY_BOXES } from '../render/overlayBoxes';
 import { shove, slide } from '../rules/slide';
@@ -131,7 +131,7 @@ interface Breakable {
 
 /** Something lying in the room that the astronaut picks up by walking onto it. */
 interface Pickup {
-  icon: Phaser.GameObjects.Image;
+  icon: Phaser.GameObjects.Sprite;
   /** Soft shadow under the floating icon, on the floor or the pedestal top. */
   shadow: Phaser.GameObjects.Image;
   /** Height of the surface the shadow falls on (the pedestal top), above the ground point. */
@@ -327,7 +327,9 @@ export default class PlayScene extends Phaser.Scene {
     makePlaceholderArt(this);
     attachNormalMap(this, ITEMS_KEY);
     attachNormalMap(this, ITEMS2_KEY);
-    makeCoinArt(this);
+    attachNormalMap(this, COINS_KEY);
+    for (const name of SHOP_PROPS) attachNormalMap(this, `shop-${name}`);
+    makeCoinAnims(this);
     for (const key of Object.keys(OVERLAY_BOXES)) attachNormalMap(this, key);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
@@ -625,6 +627,18 @@ export default class PlayScene extends Phaser.Scene {
   private addShop(): void {
     const centre = centreTile(this.here.shape);
     const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
+    // Furniture: a vending terminal and a dispenser against the top wall,
+    // with the shop's sign hanging on the wall between them.
+    for (const [name, dx] of [['terminal', -3.6], ['dispenser', 3.6]] as const) {
+      const fx = ROOM_X + (centre.col + 0.5 + dx) * TILE;
+      const fy = ROOM_Y + 1.7 * TILE;
+      const prop = this.addProp(`shop-${name}`, fx, fy, true);
+      const body = prop.body as Phaser.Physics.Arcade.StaticBody;
+      body.setSize(prop.width - 6, 14).setOffset(3, prop.height - 14);
+      this.walls.add(prop);
+    }
+    const sign = this.add.image(ROOM_X + (centre.col + 0.5 - 1.6) * TILE, ROOM_Y - 2, 'shop-sign').setOrigin(0.5, 1).setLighting(true).setDepth(2);
+    this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:shop`));
     const stock: ItemId[] = [];
     for (let i = 0; i < 3; i++) {
@@ -699,7 +713,7 @@ export default class PlayScene extends Phaser.Scene {
     take: () => boolean,
   ): Pickup {
     const y = groundY - lift;
-    const icon = this.add.image(x, y, tex.key, tex.frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
+    const icon = this.add.sprite(x, y, tex.key, tex.frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
     const shadow = this.add.image(x, groundY - surface, 'px-shadow').setDepth(surface ? depthAt(groundY) + 0.005 : 4.9);
     const light = this.lights.addLight(x, y, 70, color, 0.9);
     const pickup: Pickup = { icon, shadow, surface, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take };
@@ -842,6 +856,7 @@ export default class PlayScene extends Phaser.Scene {
       return true;
     });
     p.light.setRadius(40);
+    p.icon.play({ key: coinSpinKey(kind), startFrame: Math.floor(Math.random() * 6) });
     if (fresh) {
       p.icon.setScale(0.2);
       this.tweens.add({ targets: p.icon, scale: 1, duration: 220, ease: 'Back.Out' });
