@@ -184,3 +184,36 @@ export function rollRoomReward(roll: number, luck: number): 'item' | 'energy' | 
 
 /** Chance (after items and energy) that a cleared room leaves a coin. */
 export const COIN_DROP_CHANCE = 0.4;
+
+/**
+ * Item quality, 1 (basic) to 4 (exceptional): sets the shop price.
+ * Boss items are always 4.
+ */
+const QUALITY: Partial<Record<ItemId, 1 | 2 | 3 | 4>> = {
+  'extended-barrel': 1,
+  'leg-servos': 1,
+  'particle-accelerator': 1,
+  'captains-coin': 1,
+  'armor-plate': 1,
+  'plasma-core': 2,
+  'rapid-capacitor': 2,
+  'shield-generator': 2,
+  overclock: 2,
+  'grav-boots': 2,
+  'dog-tag': 2,
+  'battery-pack': 2,
+  'coolant-tank': 2,
+  'reflecting-prism': 3,
+  'crystal-shard': 3,
+  'nano-repair': 3,
+  'long-scope': 3,
+  'alien-heart': 3,
+  'spore-lens': 3,
+  'reactive-armor': 3,
+  'twin-emitter': 4,
+  'seeker-chip': 4,
+};
+
+export function itemQuality(id: ItemId): 1 | 2 | 3 | 4 {
+  return ITEMS[id].boss ? 4 : (QUALITY[id] ?? 2);
+}

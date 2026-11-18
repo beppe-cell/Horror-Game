@@ -148,7 +148,119 @@ export const HIVE: Biome = {
 };
 
 /** Biome of each floor, from the first; deeper floors reuse the last one until their art exists. */
-export const BIOMES: readonly Biome[] = [CRASH_SITE, HIVE];
+export const CRYSTAL: Biome = {
+  key: '3-crystal',
+  title: 'Piano 3 — Le grotte di cristallo',
+  hole: 24,
+  floors: [
+    { id: 0, weight: 50 },
+    { id: 1, weight: 5 },
+    { id: 4, weight: 4 },
+    { id: 3, weight: 3 },
+  ],
+  decals: [15, 21, 22],
+  wallFaces: [7, 7, 11, 6],
+  doorClosed: 12,
+  doorAnim: { file: 'door', frames: [0, 1] },
+  // Dark crystal-studded rocks, a monolith, frozen blocks, a geode, a dead machine.
+  obstacles: [2, 2, 15, 5, 18, 3, 17],
+  decor: [1, 4, 6, 7, 10, 11, 12, 8, 9],
+  crystals: [0, 13, 16],
+  lamps: {
+    0: { color: 0x5af0ff, radius: 110, intensity: 0.85, kind: 'pulse' }, // cyan crystal cluster
+    13: { color: 0x5af0ff, radius: 120, intensity: 0.9, kind: 'pulse' }, // big cyan crystal
+    16: { color: 0xa060ff, radius: 100, intensity: 0.85, kind: 'pulse' }, // violet crystals
+    8: { color: 0x5af0ff, radius: 45, intensity: 0.6, kind: 'pulse' }, // small cyan crystal
+    9: { color: 0xa060ff, radius: 40, intensity: 0.6, kind: 'pulse' }, // small violet crystal
+  },
+  litDecor: [8, 9],
+  animated: {},
+  effects: {
+    0: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
+    13: [{ type: 'sparkle', fx: 0.5, fy: 0.25, every: 400 }],
+    16: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 500 }],
+  },
+  rock: '#070a12',
+  door: { metal: '#3a3450', metalLight: '#6a5a90', dark: '#05060c', stripe: '#5af0ff', outline: '#0b0d14' },
+};
+
+/** Floor 4: an abandoned alien research lab, tanks and consoles under emergency light. */
+export const LAB: Biome = {
+  key: '4-lab',
+  title: 'Piano 4 — Il laboratorio',
+  hole: 18,
+  floors: [
+    { id: 0, weight: 50 },
+    { id: 4, weight: 6 },
+    { id: 3, weight: 4 },
+    { id: 2, weight: 3 },
+    { id: 1, weight: 2 },
+  ],
+  decals: [15, 16, 5],
+  wallFaces: [11, 11, 11],
+  doorClosed: 13,
+  doorAnim: { file: 'door', frames: [0, 1] },
+  // Broken tanks, consoles, capsules, pods, crates, monitors, the operating table.
+  obstacles: [0, 1, 2, 3, 4, 5, 5, 17, 15],
+  decor: [6, 7, 9, 10, 11, 12, 13, 16],
+  crystals: [14, 8, 19],
+  lamps: {
+    14: { color: 0x5af0ff, radius: 110, intensity: 0.9, kind: 'pulse' }, // specimen tube
+    8: { color: 0x5af0ff, radius: 50, intensity: 0.7, kind: 'pulse' }, // crystal sample
+    2: { color: 0x39d0ff, radius: 60, intensity: 0.7, kind: 'dying' }, // capsule light
+    0: { color: 0x5af0ff, radius: 70, intensity: 0.7, kind: 'flicker' }, // broken tank
+    1: { color: 0x4dffb0, radius: 60, intensity: 0.7, kind: 'flicker' }, // console screens
+  },
+  litDecor: [8, 8],
+  animated: {},
+  effects: {
+    0: [{ type: 'sparks', fx: 0.5, fy: 0.4, every: 700 }],
+    3: [{ type: 'steam', fx: 0.2, fy: 0.3, every: 1600 }],
+    14: [{ type: 'sparkle', fx: 0.5, fy: 0.5, every: 700 }],
+    1: [{ type: 'beacon', fx: 0.6, fy: 0.2, every: 1200 }],
+  },
+  rock: '#090c10',
+  door: { metal: '#3a4450', metalLight: '#6a7a88', dark: '#05070b', stripe: '#5af0ff', outline: '#0b0d14' },
+};
+
+/** Floor 5: the core, where alien flesh has grown into the machines. Red light. */
+export const CORE: Biome = {
+  key: '5-core',
+  title: 'Piano 5 — Il nucleo',
+  hole: 17,
+  floors: [
+    { id: 0, weight: 60 },
+    { id: 3, weight: 3 },
+    { id: 5, weight: 2 },
+    { id: 1, weight: 2 },
+  ],
+  decals: [2, 14, 15, 4],
+  wallFaces: [6, 6, 7, 11],
+  doorClosed: 12,
+  doorAnim: { file: 'door', frames: [0, 1] },
+  // Flesh-grown machines, wrapped pods, a throne of cables, a giant eye.
+  obstacles: [1, 3, 5, 19, 21, 13, 17, 4],
+  decor: [6, 7, 9, 10, 11, 12, 14, 15, 16],
+  crystals: [20, 2, 0, 8],
+  lamps: {
+    20: { color: 0xff3a4a, radius: 110, intensity: 0.9, kind: 'pulse' }, // big red crystal
+    2: { color: 0xff3a4a, radius: 80, intensity: 0.85, kind: 'pulse' }, // red tube
+    0: { color: 0xff3a4a, radius: 70, intensity: 0.8, kind: 'flicker' }, // flesh pillar
+    8: { color: 0xff3a4a, radius: 45, intensity: 0.7, kind: 'pulse' }, // red shard
+    17: { color: 0xff3a4a, radius: 50, intensity: 0.6, kind: 'pulse' }, // glowing pipe
+  },
+  litDecor: [8, 8],
+  animated: {},
+  effects: {
+    20: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
+    1: [{ type: 'steam', fx: 0.5, fy: 0.2, every: 1500 }],
+    19: [{ type: 'smoke', fx: 0.5, fy: 0.15, every: 600 }],
+  },
+  rock: '#0c0608',
+  door: { metal: '#3a2a2e', metalLight: '#6a4a50', dark: '#050204', stripe: '#ff3a4a', outline: '#0b0d14' },
+};
+
+export const BIOMES: readonly Biome[] = [CRASH_SITE, HIVE, CRYSTAL, LAB, CORE];
 
 export const biomeFor = (floor: number): Biome => BIOMES[Math.min(BIOMES.length, Math.max(1, floor)) - 1];
 

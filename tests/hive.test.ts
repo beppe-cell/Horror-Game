@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { HATCH_MAX, HIVE_WEIGHTS, JELLY_WINDUP_MS, SLIME_BIG, SLIME_SIZES, newEnemy, roomRoster, stepEnemy, weightsFor } from '../src/rules/enemies';
+import { HATCH_MAX, JELLY_WINDUP_MS, SLIME_BIG, SLIME_SIZES, newEnemy, roomRoster, stepEnemy, weightsFor } from '../src/rules/enemies';
 import { MAX_SWARM, QUEEN_ORDER, newQueen, nextQueenAttack, stepQueen } from '../src/rules/queen';
 import { Rng } from '../src/rules/rng';
+import { BOSS_KINDS, bossFor } from '../src/rules/bosses';
 
 describe('hive enemies', () => {
-  it('floor 2 rooms use the hive mix', () => {
-    expect(weightsFor(1)).not.toBe(HIVE_WEIGHTS);
-    expect(weightsFor(2)).toBe(HIVE_WEIGHTS);
-    const kinds = new Set(HIVE_WEIGHTS.map(([k]) => k));
-    for (let i = 0; i < 30; i++) {
-      for (const k of roomRoster(new Rng(i), 5, [], HIVE_WEIGHTS)) expect(kinds.has(k)).toBe(true);
-    }
+  it('floors mostly hold their own kinds, but any kind can appear anywhere', () => {
+    const w = (floor: number, kind: string) => weightsFor(floor).find(([k]) => k === kind)![1];
+    expect(w(2, 'worker')).toBeGreaterThan(w(2, 'crawler'));
+    expect(w(1, 'crawler')).toBeGreaterThan(w(1, 'worker'));
+    for (const floor of [1, 2, 3, 5]) for (const [, weight] of weightsFor(floor)) expect(weight).toBeGreaterThan(0);
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) for (const k of roomRoster(new Rng(i), 5, [], weightsFor(4))) seen.add(k);
+    expect(seen.size).toBeGreaterThan(6);
   });
 
   it('the worker winds up, then dives in a straight line', () => {
@@ -103,5 +105,14 @@ describe('slime and jelly', () => {
       s = step.state;
     }
     expect(pulses).toBeGreaterThan(2);
+  });
+});
+
+describe('bosses', () => {
+  it('are dealt out per run, never the same twice in a row', () => {
+    for (const roll of [0, 0.3, 0.6, 0.99]) {
+      for (let f = 1; f < 6; f++) expect(bossFor(roll, f)).not.toBe(bossFor(roll, f + 1));
+    }
+    expect(new Set([bossFor(0, 1), bossFor(0.99, 1)]).size).toBe(BOSS_KINDS.length);
   });
 });

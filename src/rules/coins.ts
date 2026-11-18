@@ -24,8 +24,22 @@ export function rollCoin(roll: number): CoinKind {
 /** Chance that a broken prop leaves a coin. */
 export const PROP_COIN_CHANCE = 0.25;
 
-/** Shop prices, in coins. */
-export const PRICE = { item: 15, energy: 3 };
+/** Base shop price of an item by its quality (1 to 4), in coins. */
+export const QUALITY_PRICE = [0, 10, 15, 22, 30] as const;
+/** Base price of an energy cell. */
+export const ENERGY_PRICE = 3;
+/** Each floor down, shop prices go up by this fraction. */
+export const PRICE_PER_FLOOR = 0.25;
+
+/** Price of an item of this quality on this floor. */
+export function itemPrice(quality: 1 | 2 | 3 | 4, floor: number): number {
+  return Math.round(QUALITY_PRICE[quality] * (1 + PRICE_PER_FLOOR * Math.max(0, floor - 1)));
+}
+
+/** Price of an energy cell on this floor. */
+export function energyPrice(floor: number): number {
+  return ENERGY_PRICE + Math.max(0, floor - 1);
+}
 
 /** Hits a small prop takes before it breaks. */
 export const PROP_HP = 2;

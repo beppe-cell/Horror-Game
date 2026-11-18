@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
 import { BASH_DAMAGE, BASH_RANGE, BLOAT_RING, JELLY_PULSE_RADIUS, SLIME_BIG, SLIME_SIZES, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../rules/enemies';
+import type { BossKind } from '../rules/bosses';
 import { QUEEN_BODY, QUEEN_CONTACT_DAMAGE, QUEEN_HP, QUEEN_WAKE_MS, QueenState, SPIT_SPREAD, newQueen, stepQueen } from '../rules/queen';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
@@ -292,6 +293,8 @@ export class EnemyManager {
   private queen?: Queen;
   /** Which floor: picks the enemy mix. */
   floor = 1;
+  /** Which boss this floor's boss room holds. */
+  bossKind: BossKind = 'brood';
   private clank!: Phaser.GameObjects.Particles.ParticleEmitter;
   private dirt!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Red cracking ring on the floor where the boss will burst out. */
@@ -406,7 +409,7 @@ export class EnemyManager {
 
   /** The floor's boss, standing with her feet at (x, baseY). */
   spawnBoss(x: number, baseY: number): void {
-    if (this.floor >= 2) this.spawnQueen(x, baseY);
+    if (this.bossKind === 'queen') this.spawnQueen(x, baseY);
     else this.spawnBrood(x, baseY);
   }
 
@@ -463,7 +466,7 @@ export class EnemyManager {
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
     const taken: EnemyKind[] = [];
-    if (pools.length && this.floor === 1 && rng.next() < 0.5) {
+    if (pools.length && rng.next() < 0.5) {
       const cell = rng.pick(pools);
       const p = toWorld(cell.c, cell.r);
       this.add('lurker', p.x, p.y, rng.next());
