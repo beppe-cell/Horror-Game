@@ -627,17 +627,29 @@ export default class PlayScene extends Phaser.Scene {
   private addShop(): void {
     const centre = centreTile(this.here.shape);
     const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
-    // Furniture: a vending terminal and a dispenser against the top wall,
-    // with the shop's sign hanging on the wall between them.
-    for (const [name, dx] of [['terminal', -3.6], ['dispenser', 3.6]] as const) {
-      const fx = ROOM_X + (centre.col + 0.5 + dx) * TILE;
-      const fy = ROOM_Y + 1.7 * TILE;
-      const prop = this.addProp(`shop-${name}`, fx, fy, true);
+    // Furniture: a vending terminal and a dispenser on free floor away from
+    // the row of pedestals, and the sign on the top wall (not over a door).
+    // Placed from the room's seed, so each shop looks different but stays
+    // the same when the player comes back.
+    const place = new Rng(seedFromString(`${this.seed}:${this.here.id}:furniture`));
+    const spots = this.spawnCells.filter((c) => Math.abs(c.r - centre.row) >= 2 && c.r > 0);
+    const taken: { c: number; r: number }[] = [];
+    for (const name of ['terminal', 'dispenser'] as const) {
+      const options = spots.filter((c) => taken.every((t) => Math.abs(t.c - c.c) + Math.abs(t.r - c.r) >= 4));
+      if (!options.length) break;
+      const spot = place.pick(options);
+      taken.push(spot);
+      const prop = this.addProp(`shop-${name}`, ROOM_X + (spot.c + 0.5) * TILE, ROOM_Y + (spot.r + 1) * TILE - 2, true);
       const body = prop.body as Phaser.Physics.Arcade.StaticBody;
       body.setSize(prop.width - 6, 14).setOffset(3, prop.height - 14);
       this.walls.add(prop);
+      // Nothing else spawns on that cell any more.
+      this.spawnCells = this.spawnCells.filter((c) => c !== spot);
     }
-    const sign = this.add.image(ROOM_X + (centre.col + 0.5 - 1.6) * TILE, ROOM_Y - 2, 'shop-sign').setOrigin(0.5, 1).setLighting(true).setDepth(2);
+    const doorCols = this.links.filter((l) => l.side === 'up').map((l) => doorTile(l.x, l.y, l.side).col);
+    const signCols = Array.from({ length: interiorSize(this.here.shape).cols - 2 }, (_, i) => i + 1).filter((col) => doorCols.every((d) => Math.abs(d - col) > 1));
+    const signCol = signCols.length ? place.pick(signCols) : 1;
+    const sign = this.add.image(ROOM_X + (signCol + 0.5) * TILE, ROOM_Y - 2, 'shop-sign').setOrigin(0.5, 1).setLighting(true).setDepth(2);
     this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:shop`));
     const stock: ItemId[] = [];
