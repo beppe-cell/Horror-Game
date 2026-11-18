@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../src/rules/rng';
-import { ITEM_IDS, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../src/rules/items';
+import { ITEMS, ITEM_IDS, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../src/rules/items';
 import { BASE_STATS, computeStats } from '../src/rules/stats';
 import { heal, newHealth } from '../src/rules/health';
 import { BossState, ENRAGED_RING, MAX_BROOD, RING, UNDER_MS, newBoss, nextAttack, stepBoss } from '../src/rules/boss';
 
 describe('items', () => {
-  it('never offers an item the player has', () => {
+  it('never offers an item the player has, and keeps boss items for bosses', () => {
     const rng = new Rng(3);
-    const owned = ITEM_IDS.slice(0, 9);
-    for (let i = 0; i < 20; i++) expect(pickItem(rng, owned)).toBe(ITEM_IDS[9]);
-    expect(pickItem(rng, ITEM_IDS)).toBeUndefined();
+    const normal = ITEM_IDS.filter((id) => !ITEMS[id].boss);
+    const owned = normal.slice(0, normal.length - 1);
+    for (let i = 0; i < 20; i++) expect(pickItem(rng, owned)).toBe(normal[normal.length - 1]);
+    expect(pickItem(rng, normal)).toBeUndefined();
+    for (let i = 0; i < 20; i++) expect(ITEMS[pickItem(rng, [], 'boss')!].boss).toBe(true);
   });
 
   it('raises stats', () => {

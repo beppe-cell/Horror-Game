@@ -18,6 +18,9 @@ import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
 import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
+import { ITEMS2_KEY, ITEMS_KEY, itemTexture, preloadItemArt } from '../render/itemIcons';
+import { ItemAuras } from '../render/ItemAuras';
+import { OVERLAY_BOXES } from '../render/overlayBoxes';
 import { shove, slide } from '../rules/slide';
 import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
@@ -128,7 +131,6 @@ interface Pickup {
 
 const BOSS_NAME = 'Madre della covata';
 /** Item sheet: 4x3 cells of 42x36, the pedestal standing on row 29 of its cell. */
-const ITEMS_KEY = 'items';
 const PEDESTAL_BASE_ROW = 29;
 /** Height of the pedestal's flat top above its base, in pixels. */
 const PEDESTAL_TOP = 20;
@@ -206,6 +208,8 @@ export default class PlayScene extends Phaser.Scene {
   private steadyFrames = 0;
   private createdAt = 0;
   private pickups: Pickup[] = [];
+  /** Item effects drawn on the astronaut. */
+  private auras!: ItemAuras;
   /** Chalk tutorial on the start room floor, and which controls it shows. */
   private tutorial: Phaser.GameObjects.GameObject[] = [];
   private tutorialMode: 'keys' | 'touch' | 'pad' | null = null;
@@ -262,7 +266,7 @@ export default class PlayScene extends Phaser.Scene {
     preloadPlayer(this);
     preloadBiome(this, CRASH_SITE);
     preloadEnemies(this);
-    this.load.spritesheet(ITEMS_KEY, 'sprites/items/items.png', { frameWidth: 42, frameHeight: 36 });
+    preloadItemArt(this);
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -293,6 +297,8 @@ export default class PlayScene extends Phaser.Scene {
 
     makePlaceholderArt(this);
     attachNormalMap(this, ITEMS_KEY);
+    attachNormalMap(this, ITEMS2_KEY);
+    for (const key of Object.keys(OVERLAY_BOXES)) attachNormalMap(this, key);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
     paintFloor(this, 'room-floor', CRASH_SITE, size.cols, size.rows, new Rng(rng.int(0, 1e9)));
@@ -323,6 +329,8 @@ export default class PlayScene extends Phaser.Scene {
     // its top half: no gap, no floating.
     this.addCaster(this.player, PLAYER_SOLE_ROW, PLAYER_HEIGHT, 18, 1, 4.9);
     this.playerLight = this.lights.addLight(this.player.x, this.player.y, 190, 0xcfeeff, 1.2);
+    this.auras = new ItemAuras(this, this.player, () => this.facing);
+    this.auras.sync(this.run.items);
 
     this.shots = this.physics.add.group({ defaultKey: 'px-bolt', maxSize: 40 });
     for (let i = 0; i < LIT_SHOTS; i++) {
@@ -402,6 +410,7 @@ export default class PlayScene extends Phaser.Scene {
       this.openDoors(true);
       this.syncMap();
       if (this.here.kind === 'normal') this.rollReward();
+      if (this.here.kind === 'boss') this.bossReward();
     };
     this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? BOSS_NAME : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
@@ -565,7 +574,7 @@ export default class PlayScene extends Phaser.Scene {
     if (this.run.taken.includes(this.here.id)) return;
     const id = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:item`)), this.run.items);
     if (!id) return;
-    this.addPickup(ITEMS[id].frame, x, baseY, 40, ITEMS[id].color, 28, PEDESTAL_TOP, () => {
+    this.addPickup(itemTexture(id), x, baseY, 40, ITEMS[id].color, 28, PEDESTAL_TOP, () => {
       this.run.taken.push(this.here.id);
       this.takeItem(id);
       return true;
@@ -577,7 +586,7 @@ export default class PlayScene extends Phaser.Scene {
    * `lift` pixels above it; `take` runs when the astronaut's feet come within `radius`.
    */
   private addPickup(
-    frame: number,
+    tex: { key: string; frame: number },
     x: number,
     groundY: number,
     lift: number,
@@ -587,7 +596,7 @@ export default class PlayScene extends Phaser.Scene {
     take: () => boolean,
   ): void {
     const y = groundY - lift;
-    const icon = this.add.image(x, y, ITEMS_KEY, frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
+    const icon = this.add.image(x, y, tex.key, tex.frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
     const shadow = this.add.image(x, groundY - surface, 'px-shadow').setDepth(surface ? depthAt(groundY) + 0.005 : 4.9);
     const light = this.lights.addLight(x, y, 70, color, 0.9);
     this.pickups.push({ icon, shadow, surface, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take });
@@ -656,8 +665,9 @@ export default class PlayScene extends Phaser.Scene {
     this.enemies.rewake(time);
   }
 
-  /** Stats column in the HUD: speed, fire rate, damage, range, shot speed and luck. */
+  /** Stats column in the HUD, and the icons of the items picked up. */
   private syncStats(): void {
+    this.hud()?.setItems(this.run.items.map((id) => itemTexture(id)));
     const st = this.stats;
     this.hud()?.setStats([
       { icon: 'speed', value: st.moveSpeed },
@@ -672,6 +682,7 @@ export default class PlayScene extends Phaser.Scene {
   /** Adds an item to the run: stats, suit and shot effects change at once. */
   takeItem(id: ItemId): void {
     this.run.items.push(id);
+    this.auras.sync(this.run.items);
     this.stats = computeStats(BASE_STATS, itemModifiers(this.run.items));
     this.health = applyItemToHealth(this.health, id);
     this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
@@ -695,6 +706,21 @@ export default class PlayScene extends Phaser.Scene {
     this.placeDrop(drop, true);
   }
 
+  /**
+   * The boss leaves a strong item from the boss pool where she fell, a
+   * moment after dying. It is stored at once, so it waits if the player
+   * walks out before it appears.
+   */
+  private bossReward(): void {
+    const item = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:boss`)), this.run.items, 'boss');
+    if (!item) return;
+    this.run.drops = { ...this.run.drops, [this.here.id]: item };
+    const room = this.here.id;
+    this.time.delayedCall(1400, () => {
+      if (this.here.id === room && this.run.drops?.[room] === item) this.placeDrop(item, true);
+    });
+  }
+
   /** Puts a room's reward on the floor in the middle of the room (popping in when just dropped). */
   private placeDrop(drop: ItemId | 'energy', fresh: boolean): void {
     const centre = centreTile(this.here.shape);
@@ -708,14 +734,14 @@ export default class PlayScene extends Phaser.Scene {
       return true;
     };
     if (drop === 'energy') {
-      this.addPickup(ENERGY_CELL_FRAME, x, y, 14, 0x39d0ff, 16, 0, () => {
+      this.addPickup({ key: ITEMS_KEY, frame: ENERGY_CELL_FRAME }, x, y, 14, 0x39d0ff, 16, 0, () => {
         if (this.health.hp >= this.health.max) return false;
         this.health = heal(this.health, ENERGY_HEAL);
         this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
         return done();
       });
     } else {
-      this.addPickup(ITEMS[drop].frame, x, y, 18, ITEMS[drop].color, 20, 0, () => {
+      this.addPickup(itemTexture(drop), x, y, 18, ITEMS[drop].color, 20, 0, () => {
         this.takeItem(drop);
         return done();
       });
@@ -956,11 +982,16 @@ export default class PlayScene extends Phaser.Scene {
       this.hudSynced = true;
     }
     // Blink while invulnerable after a hit.
+    // While immune after a hit: a clear blink and a cold tint, so the
+    // player sees that nothing can hurt them for a moment.
     const blinking = !this.dead && time < this.health.invulnerableUntil;
-    this.player.setAlpha(blinking && Math.floor(time / 80) % 2 === 0 ? 0.35 : 1);
+    this.player.setAlpha(blinking && Math.floor(time / 70) % 2 === 0 ? 0.2 : 1);
+    if (blinking && time >= this.tintUntil) this.player.setTint(0xb8f1ff);
+    else if (!blinking && !this.tintUntil) this.player.clearTint();
     // Stand in front of props higher up the screen, behind the ones lower down.
     this.player.setDepth(depthAt(this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW));
-    this.updateShots();
+    this.updateShots(delta / 1000);
+    this.auras.update(time, !this.dead && (this.lastMove.x !== 0 || this.lastMove.y !== 0));
     this.updateLights(time);
     this.propEffects.update(time);
     this.hud()?.setDebug(
@@ -1071,7 +1102,7 @@ export default class PlayScene extends Phaser.Scene {
   /**
    * Damage to the suit: shield first, then integrity. A hit shakes the view,
    * pushes the astronaut away from the source, plays the hurt animation and
-   * gives a second of blinking invulnerability. At zero the astronaut dies.
+   * gives 1.5 s of blinking invulnerability. At zero the astronaut dies.
    */
   hurtPlayer(amount: number, fromX: number, fromY: number): void {
     if (this.dead || this.leaving) return;
@@ -1090,6 +1121,14 @@ export default class PlayScene extends Phaser.Scene {
     this.knock = { x: (dx / d) * 220, y: (dy / d) * 220 };
     this.player.setTint(0xff6a6a);
     this.tintUntil = now + 140;
+    if (hasEffect(this.run.items, 'retaliate') && !r.dead) {
+      // Reactive armor: a ring of bolts bursts out of the suit.
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        this.fireBolt(this.player.x, this.player.y + 6, Math.cos(a), Math.sin(a), now);
+      }
+      this.shake.add(0.2);
+    }
     if (r.dead) this.die();
   }
 
@@ -1122,15 +1161,32 @@ export default class PlayScene extends Phaser.Scene {
   private updateShooting(time: number): void {
     const dir = this.shootDirection();
     if (!dir || time < this.nextShotAt) return;
-    const shot = this.shots.get(this.player.x, this.player.y) as Phaser.Physics.Arcade.Image | null;
-    if (!shot) return;
     const d = DIR4_VECTORS[dir];
-    const body = this.player.body as Phaser.Physics.Arcade.Body;
     // From the blaster, roughly at chest height (the sprite centre is above the waist).
-    shot.enableBody(true, this.player.x + d.x * 14, this.player.y + 6 + d.y * 10, true, true);
+    const x = this.player.x + d.x * 14;
+    const y = this.player.y + 6 + d.y * 10;
+    // Items change the volley: a fan of three, and/or twin bolts side by side.
+    const angles = hasEffect(this.run.items, 'spread') ? [-0.26, 0, 0.26] : [0];
+    const offsets = hasEffect(this.run.items, 'double') ? [-5, 5] : [0];
+    for (const a of angles) {
+      const vx = d.x * Math.cos(a) - d.y * Math.sin(a);
+      const vy = d.x * Math.sin(a) + d.y * Math.cos(a);
+      for (const o of offsets) this.fireBolt(x - d.y * o, y + d.x * o, vx, vy, time);
+    }
+    this.fireFeedback(x, y, d);
+    this.nextShotAt = time + fireCooldownMs(this.stats);
+    this.shotsFired++;
+  }
+
+  /** Launches one bolt from (x, y) in direction (dx, dy), at chest height. */
+  private fireBolt(x: number, y: number, dx: number, dy: number, time: number): Phaser.Physics.Arcade.Image | null {
+    const shot = this.shots.get(x, y) as Phaser.Physics.Arcade.Image | null;
+    if (!shot) return null;
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    shot.enableBody(true, x, y, true, true);
     shot.body!.setSize(6, 6);
     const speed = this.px(this.stats.shotSpeed);
-    shot.setVelocity(d.x * speed + body.velocity.x * SHOT_INHERIT, d.y * speed + body.velocity.y * SHOT_INHERIT);
+    shot.setVelocity(dx * speed + body.velocity.x * SHOT_INHERIT, dy * speed + body.velocity.y * SHOT_INHERIT);
     // Range is a distance, not a time: a slow frame rate must not shorten it.
     shot.setData('startX', shot.x).setData('startY', shot.y).setData('range', this.px(this.stats.range));
     // Shadow on the floor straight below the shot, at the shooter's feet level.
@@ -1148,9 +1204,7 @@ export default class PlayScene extends Phaser.Scene {
     this.tweens.killTweensOf(shot);
     shot.setScale(1.7, 0.55);
     this.tweens.add({ targets: shot, scaleX: 1, scaleY: 1, duration: 110, ease: 'Back.Out' });
-    this.fireFeedback(shot.x, shot.y, d);
-    this.nextShotAt = time + fireCooldownMs(this.stats);
-    this.shotsFired++;
+    return shot;
   }
 
   /** Muzzle flash, a light blink at the barrel and a small recoil of the view. */
@@ -1235,11 +1289,14 @@ export default class PlayScene extends Phaser.Scene {
     shot.disableBody(true, true);
   }
 
-  private updateShots(): void {
+  private updateShots(dt: number): void {
     const t = this.time.now;
+    const homing = hasEffect(this.run.items, 'homing');
+    const targets = homing ? this.enemies.targets() : [];
     for (const child of this.shots.getChildren()) {
       const shot = child as Phaser.Physics.Arcade.Image;
       if (!shot.active || shot.getData('dropping')) continue;
+      if (homing && targets.length) this.steerShot(shot, targets, dt);
       this.placeShotShadow(shot);
       this.trail.emitParticleAt(shot.x, shot.y, 1);
       // Plasma shimmer once the spawn pop is over.
@@ -1250,6 +1307,33 @@ export default class PlayScene extends Phaser.Scene {
       const travelled = Math.hypot(shot.x - (shot.getData('startX') as number), shot.y - (shot.getData('startY') as number));
       if (travelled >= (shot.getData('range') as number)) this.killShot(shot, false);
     }
+  }
+
+  /**
+   * Homing bolts turn towards the nearest enemy within 5 tiles (its ground
+   * point towards the enemy's feet), at most 4 radians a second.
+   */
+  private steerShot(shot: Phaser.Physics.Arcade.Image, targets: { x: number; y: number }[], dt: number): void {
+    const gx = shot.x;
+    const gy = shot.y + SHOT_HEIGHT;
+    let best: { x: number; y: number } | null = null;
+    let bestD = 5 * TILE;
+    for (const t of targets) {
+      const d = Math.hypot(t.x - gx, t.y - gy);
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    if (!best) return;
+    const v = shot.body!.velocity;
+    const speed = Math.hypot(v.x, v.y);
+    const now = Math.atan2(v.y, v.x);
+    const want = Math.atan2(best.y - gy, best.x - gx);
+    const turn = Phaser.Math.Angle.Wrap(want - now);
+    const a = now + Phaser.Math.Clamp(turn, -4 * dt, 4 * dt);
+    shot.setVelocity(Math.cos(a) * speed, Math.sin(a) * speed);
+    shot.setRotation(a);
   }
 
   /** Keeps a shot's floor shadow under it; fainter over water, where the surface scatters light. */

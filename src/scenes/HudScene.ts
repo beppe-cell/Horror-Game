@@ -47,6 +47,14 @@ export default class HudScene extends Phaser.Scene {
   private statTexts: Phaser.GameObjects.Text[] = [];
   private lastStats: StatLine[] = [];
   private musicButton!: Phaser.GameObjects.Text;
+  private pauseButton!: Phaser.GameObjects.Text;
+  private pauseVeil!: Phaser.GameObjects.Rectangle;
+  private pauseText!: Phaser.GameObjects.Text;
+  private itemIcons: Phaser.GameObjects.Image[] = [];
+  private lastItems: { key: string; frame: number }[] = [];
+  /** Screen y of the bottom of the minimap panel, for the item list under it. */
+  private mapBottom = 60;
+  paused = false;
   private lastHealth: { icons: number[]; shield: number } | null = null;
 
   /**
@@ -103,6 +111,28 @@ export default class HudScene extends Phaser.Scene {
       },
     );
     this.game.events.on('music-toggled', this.syncMusicButton, this);
+    // Pause: P, Esc or the pause button. The game stops; stats and items
+    // become fully opaque so they can be read.
+    this.pauseButton = this.add
+      .text(0, 0, '❚❚', { fontFamily: 'monospace', color: '#c8ccc4' })
+      .setDepth(100)
+      .setInteractive({ useHandCursor: true });
+    this.pauseButton.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        this.togglePause();
+      },
+    );
+    this.pauseVeil = this.add.rectangle(0, 0, 10, 10, 0x000000, 0.55).setOrigin(0).setDepth(95).setVisible(false);
+    this.pauseText = this.add
+      .text(0, 0, 'PAUSA\n\nP, Esc o ❚❚ per riprendere', { fontFamily: 'monospace', fontSize: '22px', color: '#e8eef7', align: 'center' })
+      .setOrigin(0.5)
+      .setDepth(110)
+      .setVisible(false);
+    this.pauseText.setShadow(0, 2, '#000000', 6, true, true);
+    this.input.keyboard?.on('keydown-P', () => this.togglePause());
+    this.input.keyboard?.on('keydown-ESC', () => this.togglePause());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.game.events.off('music-toggled', this.syncMusicButton, this));
     this.statTexts = [];
     this.layout();
@@ -122,6 +152,9 @@ export default class HudScene extends Phaser.Scene {
     this.drawBoss();
     if (this.lastHealth) this.setHealth(this.lastHealth.icons, this.lastHealth.shield);
     this.setStats(this.lastStats);
+    this.setItems(this.lastItems);
+    this.pauseVeil?.setSize(width, height);
+    this.pauseText?.setPosition(width / 2, height / 2).setFontSize(Math.round(11 * this.ui));
   }
 
   /** Boss health bar at the bottom of the screen; null hides it. */
@@ -151,6 +184,7 @@ export default class HudScene extends Phaser.Scene {
   setMap(rooms: MapRoom[]): void {
     this.mapRooms = rooms;
     this.drawMap();
+    this.setItems(this.lastItems);
   }
 
   /**
@@ -181,6 +215,7 @@ export default class HudScene extends Phaser.Scene {
     const left = this.scale.width / k - 10 - panelW;
     const top = 10;
     g.fillStyle(0x000000, 0.45).fillRect(left, top, panelW, panelH);
+    this.mapBottom = (top + panelH) * k;
     g.lineStyle(1, 0xc8ccc4, 0.55).strokeRect(left + 0.5, top + 0.5, panelW - 1, panelH - 1);
     // Centre the rooms in the panel when it is wider than they need.
     const usedW = (maxX - minX + 1) * stepX - MAP_GAP;
@@ -231,6 +266,57 @@ export default class HudScene extends Phaser.Scene {
     }
   }
 
+  /** Pauses or resumes the game. */
+  togglePause(): void {
+    const play = this.scene.get('play') as Phaser.Scene & { dead?: boolean };
+    if (!play || (!this.paused && play.dead)) return;
+    this.paused = !this.paused;
+    if (this.paused) this.scene.pause('play');
+    else {
+      this.touch?.releaseAll();
+      this.scene.resume('play');
+    }
+    this.pauseVeil.setVisible(this.paused);
+    this.pauseText.setVisible(this.paused);
+    this.applyDim();
+  }
+
+  /**
+   * Stats and items stay half see-through while playing, so they do not
+   * hide the room; in pause they are fully opaque.
+   */
+  private applyDim(): void {
+    const a = this.paused ? 1 : 0.4;
+    this.statIcons?.setAlpha(a);
+    for (const t of this.statTexts) t.setAlpha(a);
+    for (const i of this.itemIcons) i.setAlpha(a);
+    this.pauseButton?.setAlpha(this.paused ? 1 : 0.6);
+  }
+
+  /**
+   * Icons of the items picked up, in rows under the minimap, like a
+   * collection the player can glance at.
+   */
+  setItems(list: { key: string; frame: number }[]): void {
+    this.lastItems = list;
+    this.itemIcons.forEach((i) => i.destroy());
+    this.itemIcons = [];
+    const k = this.ui * 0.5;
+    const size = 30 * k;
+    const perRow = 4;
+    const right = this.scale.width - 12;
+    list.forEach((tex, i) => {
+      const col = i % perRow;
+      const row = Math.floor(i / perRow);
+      const img = this.add
+        .image(right - size / 2 - col * size, this.mapBottom + 8 + size / 2 + row * size, tex.key, tex.frame)
+        .setScale(k * 0.85)
+        .setDepth(100);
+      this.itemIcons.push(img);
+    });
+    this.applyDim();
+  }
+
   /** Dim, crossed-out note when the music is off. */
   private syncMusicButton(): void {
     const music = this.registry.get('music') as { isMuted: boolean } | undefined;
@@ -262,8 +348,11 @@ export default class HudScene extends Phaser.Scene {
       t.setFontSize(Math.round(14 * k)).setText(line.value.toFixed(2)).setPosition((x + 19) * k, (y - 1) * k);
     });
     // The music button sits under the stats column.
-    this.musicButton?.setFontSize(Math.round(18 * k)).setPosition(x * k, (50 + Math.max(lines.length, 6) * 19 + 4) * k);
+    const by = (50 + Math.max(lines.length, 6) * 19 + 4) * k;
+    this.musicButton?.setFontSize(Math.round(18 * k)).setPosition(x * k, by);
+    this.pauseButton?.setFontSize(Math.round(16 * k)).setPosition((x + 22) * k, by + 2 * k);
     this.syncMusicButton();
+    this.applyDim();
   }
 
   private nextDebugAt = 0;

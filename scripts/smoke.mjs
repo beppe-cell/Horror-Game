@@ -115,7 +115,7 @@ try {
     const startX = await page.evaluate(() => {
       const s = window.game.scene.getScene('play');
       const f = s.playerFeet();
-      s.addPickup(11, f.x + 6, f.y, 14, 0x39d0ff, 16, 0, () => false);
+      s.addPickup({ key: 'items', frame: 11 }, f.x + 6, f.y, 14, 0x39d0ff, 16, 0, () => false);
       return f.x + 6;
     });
     await page.waitForTimeout(700);
