@@ -18,7 +18,8 @@ import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
 import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
-import { ITEMS2_KEY, ITEMS_KEY, itemTexture, preloadItemArt } from '../render/itemIcons';
+import { COIN_NAME, COIN_VALUE, CoinKind, PRICE, PROP_COIN_CHANCE, PROP_HP, rollCoin } from '../rules/coins';
+import { COINS_KEY, COIN_FRAME, ITEMS2_KEY, ITEMS_KEY, SHOP_PROPS, coinSpinKey, itemTexture, makeCoinAnims, preloadItemArt } from '../render/itemIcons';
 import { ItemAuras } from '../render/ItemAuras';
 import { OVERLAY_BOXES } from '../render/overlayBoxes';
 import { shove, slide } from '../rules/slide';
@@ -103,12 +104,34 @@ export interface RunState {
   /** Treasure rooms whose item was taken. */
   taken: number[];
   /** Rewards lying on the floor of cleared rooms, by room id, until picked up. */
-  drops?: Record<number, ItemId | 'energy'>;
+  drops?: Record<number, Drop>;
+  /** Alien coins carried. */
+  coins?: number;
+  /** Shop slots already bought, by room id. */
+  bought?: Record<number, number[]>;
+  /** Small props broken, by room id (their index in the room). */
+  broken?: Record<number, number[]>;
+}
+
+/** Something left on the floor: an item, an energy cell or a coin. */
+type Drop = ItemId | 'energy' | `coin:${CoinKind}`;
+
+/** Minimap marker for a reward left in a room. */
+function lootOf(drop: Drop | undefined): 'item' | 'energy' | 'coin' | undefined {
+  if (!drop) return undefined;
+  return drop === 'energy' ? 'energy' : drop.startsWith('coin:') ? 'coin' : 'item';
+}
+
+/** A small prop that bolts can break. */
+interface Breakable {
+  prop: Phaser.GameObjects.Image;
+  index: number;
+  hp: number;
 }
 
 /** Something lying in the room that the astronaut picks up by walking onto it. */
 interface Pickup {
-  icon: Phaser.GameObjects.Image;
+  icon: Phaser.GameObjects.Sprite;
   /** Soft shadow under the floating icon, on the floor or the pedestal top. */
   shadow: Phaser.GameObjects.Image;
   /** Height of the surface the shadow falls on (the pedestal top), above the ground point. */
@@ -127,6 +150,8 @@ interface Pickup {
   radius: number;
   /** Returns false to leave it on the floor (for example a full suit): the boots shove it instead. */
   take: () => boolean;
+  /** Stays put when refused (shop goods on their pedestals). */
+  fixed?: boolean;
 }
 
 const BOSS_NAME = 'Madre della covata';
@@ -208,6 +233,9 @@ export default class PlayScene extends Phaser.Scene {
   private steadyFrames = 0;
   private createdAt = 0;
   private pickups: Pickup[] = [];
+  private breakables: Breakable[] = [];
+  /** No "not enough coins" message again before this time. */
+  private nextShopHintAt = 0;
   /** Item effects drawn on the astronaut. */
   private auras!: ItemAuras;
   /** Chalk tutorial on the start room floor, and which controls it shows. */
@@ -234,6 +262,7 @@ export default class PlayScene extends Phaser.Scene {
     this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [] };
     this.doors = [];
     this.pickups = [];
+    this.breakables = [];
     this.ready = false;
     this.steadyFrames = 0;
     this.tutorial = [];
@@ -290,14 +319,17 @@ export default class PlayScene extends Phaser.Scene {
     // Each room has its own seed, so walking back into it rebuilds the same room.
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}`));
     // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, up to two small props.
-    // The boss needs room to move: no obstacles in her lair.
-    const rockCount = this.here.kind === 'boss' ? 0 : rng.int(2, 3) * area;
+    // The boss needs room to move, and the shop's pedestals need a clear row: no obstacles there.
+    const rockCount = this.here.kind === 'boss' || this.here.kind === 'shop' ? 0 : rng.int(2, 3) * area;
     const doorTiles = this.links.map((l) => doorTile(l.x, l.y, l.side));
     this.room = generateRoom(rng, doorTiles, { rockCount, waterPools: rng.int(1, 2) * area, poolSize: 12, shape });
 
     makePlaceholderArt(this);
     attachNormalMap(this, ITEMS_KEY);
     attachNormalMap(this, ITEMS2_KEY);
+    attachNormalMap(this, COINS_KEY);
+    for (const name of SHOP_PROPS) attachNormalMap(this, `shop-${name}`);
+    makeCoinAnims(this);
     for (const key of Object.keys(OVERLAY_BOXES)) attachNormalMap(this, key);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
@@ -432,6 +464,7 @@ export default class PlayScene extends Phaser.Scene {
       this.enemies.spawnBoss(p.x, p.y);
     }
     if (this.here.kind === 'treasure') this.addPedestal();
+    if (this.here.kind === 'shop') this.addShop();
     const waiting = this.run.drops?.[this.here.id];
     if (waiting) this.placeDrop(waiting, false);
     if (this.here.kind === 'start') this.drawTutorial(this.inputMode());
@@ -558,11 +591,8 @@ export default class PlayScene extends Phaser.Scene {
     label(cx, cy + 20, 'ripulisci le stanze, trova il boss', 10);
   }
 
-  /** Treasure room: an alien pedestal in the middle, with an item floating over it until taken. */
-  private addPedestal(): void {
-    const centre = centreTile(this.here.shape);
-    const x = ROOM_X + (centre.col + 0.5) * TILE;
-    const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
+  /** An alien pedestal standing with its base at (x, baseY): solid, lit, with shadow and reflection. */
+  private placePedestal(x: number, baseY: number): void {
     const pedestal = this.physics.add.staticImage(x, baseY, ITEMS_KEY, PEDESTAL_FRAME);
     pedestal.setOrigin(0.5, (PEDESTAL_BASE_ROW + 1) / pedestal.height).setLighting(true).setDepth(depthAt(baseY));
     const body = pedestal.body as Phaser.Physics.Arcade.StaticBody;
@@ -571,6 +601,14 @@ export default class PlayScene extends Phaser.Scene {
     this.walls.add(pedestal);
     this.reflectors.push({ obj: pedestal, baseRow: PEDESTAL_BASE_ROW });
     this.addCaster(pedestal, PEDESTAL_BASE_ROW, 20, 36, 1.2, 4.9);
+  }
+
+  /** Treasure room: an alien pedestal in the middle, with an item floating over it until taken. */
+  private addPedestal(): void {
+    const centre = centreTile(this.here.shape);
+    const x = ROOM_X + (centre.col + 0.5) * TILE;
+    const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
+    this.placePedestal(x, baseY);
     if (this.run.taken.includes(this.here.id)) return;
     const id = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:item`)), this.run.items);
     if (!id) return;
@@ -580,6 +618,97 @@ export default class PlayScene extends Phaser.Scene {
       return true;
     });
   }
+
+  /**
+   * Shop: three items on pedestals and an energy cell, each with its price.
+   * Walking onto one buys it if there are enough coins; otherwise it stays
+   * put and a short message says how many are needed.
+   */
+  private addShop(): void {
+    const centre = centreTile(this.here.shape);
+    const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
+    // Furniture: a vending terminal and a dispenser on free floor away from
+    // the row of pedestals, and the sign on the top wall (not over a door).
+    // Placed from the room's seed, so each shop looks different but stays
+    // the same when the player comes back.
+    const place = new Rng(seedFromString(`${this.seed}:${this.here.id}:furniture`));
+    const spots = this.spawnCells.filter((c) => Math.abs(c.r - centre.row) >= 2 && c.r > 0);
+    const taken: { c: number; r: number }[] = [];
+    for (const name of ['terminal', 'dispenser'] as const) {
+      const options = spots.filter((c) => taken.every((t) => Math.abs(t.c - c.c) + Math.abs(t.r - c.r) >= 4));
+      if (!options.length) break;
+      const spot = place.pick(options);
+      taken.push(spot);
+      const prop = this.addProp(`shop-${name}`, ROOM_X + (spot.c + 0.5) * TILE, ROOM_Y + (spot.r + 1) * TILE - 2, true);
+      const body = prop.body as Phaser.Physics.Arcade.StaticBody;
+      body.setSize(prop.width - 6, 14).setOffset(3, prop.height - 14);
+      this.walls.add(prop);
+      // Nothing else spawns on that cell any more.
+      this.spawnCells = this.spawnCells.filter((c) => c !== spot);
+    }
+    const doorCols = this.links.filter((l) => l.side === 'up').map((l) => doorTile(l.x, l.y, l.side).col);
+    const signCols = Array.from({ length: interiorSize(this.here.shape).cols - 2 }, (_, i) => i + 1).filter((col) => doorCols.every((d) => Math.abs(d - col) > 1));
+    const signCol = signCols.length ? place.pick(signCols) : 1;
+    const sign = this.add.image(ROOM_X + (signCol + 0.5) * TILE, ROOM_Y - 2, 'shop-sign').setOrigin(0.5, 1).setLighting(true).setDepth(2);
+    this.tweens.add({ targets: sign, angle: { from: -2, to: 2 }, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+    const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:shop`));
+    const stock: ItemId[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = pickItem(rng, [...this.run.items, ...stock]);
+      if (id) stock.push(id);
+    }
+    const bought = this.run.bought?.[this.here.id] ?? [];
+    const label = (x: number, y: number, price: number) =>
+      this.add
+        .text(x, y, `${price}`, { fontFamily: 'monospace', fontSize: '11px', fontStyle: 'bold', color: '#ffd34d' })
+        .setOrigin(0.5, 0)
+        .setDepth(depthAt(y) + 0.02)
+        .setShadow(0, 1, '#000000', 2, true, true);
+    const buy = (slot: number, price: number, onBuy: () => boolean, tag: Phaser.GameObjects.Text) => () => {
+      const coins = this.run.coins ?? 0;
+      if (coins < price) {
+        if (this.time.now >= this.nextShopHintAt) {
+          this.hud()?.flash(`Servono ${price} monete`);
+          this.nextShopHintAt = this.time.now + 1500;
+        }
+        return false;
+      }
+      if (!onBuy()) return false;
+      this.run.coins = coins - price;
+      bought.push(slot);
+      this.run.bought = { ...this.run.bought, [this.here.id]: [...bought] };
+      tag.destroy();
+      this.syncStats();
+      return true;
+    };
+    stock.forEach((id, i) => {
+      const x = ROOM_X + (centre.col + 0.5 + (i - 1.5) * 2.4) * TILE;
+      this.placePedestal(x, baseY);
+      if (bought.includes(i)) return;
+      const tag = label(x, baseY + 2, PRICE.item);
+      const p = this.addPickup(itemTexture(id), x, baseY, 40, ITEMS[id].color, 26, PEDESTAL_TOP, buy(i, PRICE.item, () => (this.takeItem(id), true), tag));
+      p.fixed = true;
+    });
+    // The energy cell lies on the floor at the end of the row.
+    const ex = ROOM_X + (centre.col + 0.5 + 1.5 * 2.4) * TILE;
+    if (!bought.includes(3)) {
+      const tag = label(ex, baseY + 2, PRICE.energy);
+      const take = buy(
+        3,
+        PRICE.energy,
+        () => {
+          if (this.health.hp >= this.health.max) return false;
+          this.health = heal(this.health, ENERGY_HEAL);
+          this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+          return true;
+        },
+        tag,
+      );
+      const p = this.addPickup({ key: ITEMS_KEY, frame: ENERGY_CELL_FRAME }, ex, baseY - 2, 14, 0x39d0ff, 18, 0, take);
+      p.fixed = true;
+    }
+  }
+
 
   /**
    * A floating, softly lit pickup whose ground point is (x, groundY), drawn
@@ -594,12 +723,14 @@ export default class PlayScene extends Phaser.Scene {
     radius: number,
     surface: number,
     take: () => boolean,
-  ): void {
+  ): Pickup {
     const y = groundY - lift;
-    const icon = this.add.image(x, y, tex.key, tex.frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
+    const icon = this.add.sprite(x, y, tex.key, tex.frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
     const shadow = this.add.image(x, groundY - surface, 'px-shadow').setDepth(surface ? depthAt(groundY) + 0.005 : 4.9);
     const light = this.lights.addLight(x, y, 70, color, 0.9);
-    this.pickups.push({ icon, shadow, surface, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take });
+    const pickup: Pickup = { icon, shadow, surface, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take };
+    this.pickups.push(pickup);
+    return pickup;
   }
 
   /** True where a sliding pickup cannot go: outside the floor or into a rock. */
@@ -621,6 +752,7 @@ export default class PlayScene extends Phaser.Scene {
     for (const p of this.pickups) {
       const near = !this.dead && !this.leaving && Math.hypot(feet.x - p.x, feet.y - p.y) <= p.radius;
       if (near && !p.take()) {
+        if (p.fixed) continue;
         const wasStill = Math.hypot(p.vx, p.vy) < 20;
         Object.assign(p, shove(p, feet.x, feet.y, body.velocity.length()));
         if (wasStill) {
@@ -670,6 +802,7 @@ export default class PlayScene extends Phaser.Scene {
     this.hud()?.setItems(this.run.items.map((id) => itemTexture(id)));
     const st = this.stats;
     this.hud()?.setStats([
+      { icon: 'coin', value: this.run.coins ?? 0, whole: true },
       { icon: 'speed', value: st.moveSpeed },
       { icon: 'rate', value: st.fireRate },
       { icon: 'damage', value: st.damage },
@@ -700,7 +833,7 @@ export default class PlayScene extends Phaser.Scene {
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
     const reward = rollRoomReward(rng.next(), this.stats.luck);
     const item = reward === 'item' ? pickItem(rng, this.run.items) : undefined;
-    const drop = item ?? (reward ? 'energy' : null);
+    const drop: Drop | null = item ?? (reward === 'coin' ? `coin:${rollCoin(rng.next())}` : reward ? 'energy' : null);
     if (!drop) return;
     this.run.drops = { ...this.run.drops, [this.here.id]: drop };
     this.placeDrop(drop, true);
@@ -721,11 +854,82 @@ export default class PlayScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * A coin on the floor: picked up by walking onto it (always), adding its
+   * value. `fresh` pops it out with a little hop.
+   */
+  private dropCoin(kind: CoinKind, x: number, y: number, fresh: boolean, onTake?: () => void): void {
+    const color = { shard: 0x4dffb0, chip: 0x39d0ff, core: 0xffd34d }[kind];
+    const p = this.addPickup({ key: COINS_KEY, frame: COIN_FRAME[kind] }, x, y, 8, color, 16, 0, () => {
+      this.run.coins = (this.run.coins ?? 0) + COIN_VALUE[kind];
+      this.syncStats();
+      if (kind !== 'shard') this.hud()?.flash(`${COIN_NAME[kind]} +${COIN_VALUE[kind]}`);
+      onTake?.();
+      return true;
+    });
+    p.light.setRadius(40);
+    p.icon.play({ key: coinSpinKey(kind), startFrame: Math.floor(Math.random() * 6) });
+    if (fresh) {
+      p.icon.setScale(0.2);
+      this.tweens.add({ targets: p.icon, scale: 1, duration: 220, ease: 'Back.Out' });
+      // A little hop away from where it came from.
+      Object.assign(p, { vx: (Math.random() - 0.5) * 80, vy: (Math.random() - 0.5) * 60 });
+    }
+  }
+
+  /**
+   * Bolts break small props: their ground point inside the prop's footprint
+   * chips it; after PROP_HP hits it shatters, maybe leaving a coin. Broken
+   * props stay broken when the room is visited again.
+   */
+  private hitBreakable(shot: Phaser.Physics.Arcade.Image): boolean {
+    const gx = shot.x;
+    const gy = shot.y + SHOT_HEIGHT;
+    for (const b of this.breakables) {
+      const p = b.prop;
+      if (Math.abs(gx - p.x) > p.width * 0.4 || gy < p.y - 12 || gy > p.y + 4) continue;
+      const v = shot.body!.velocity;
+      this.impactFeedback(shot.x, shot.y, v.x, v.y);
+      this.tweens.killTweensOf(shot);
+      this.retireShot(shot);
+      b.hp -= 1;
+      this.tweens.add({ targets: p, x: p.x + 2, duration: 40, yoyo: true, repeat: 1 });
+      if (b.hp <= 0) this.breakProp(b, true);
+      return true;
+    }
+    return false;
+  }
+
+  private breakProp(b: Breakable, now: boolean): void {
+    this.breakables = this.breakables.filter((x) => x !== b);
+    const p = b.prop;
+    this.untrack(p);
+    if (now) {
+      this.sparks.setEmitterAngle({ min: 200, max: 340 });
+      this.sparks.explode(14, p.x, p.y - 6);
+      this.shake.add(0.12);
+      const list = this.run.broken?.[this.here.id] ?? [];
+      this.run.broken = { ...this.run.broken, [this.here.id]: [...list, b.index] };
+      const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:prop${b.index}`));
+      if (rng.next() < PROP_COIN_CHANCE) this.dropCoin(rollCoin(rng.next()), p.x, p.y, true);
+    }
+    p.destroy();
+  }
+
   /** Puts a room's reward on the floor in the middle of the room (popping in when just dropped). */
-  private placeDrop(drop: ItemId | 'energy', fresh: boolean): void {
+  private placeDrop(drop: Drop, fresh: boolean): void {
     const centre = centreTile(this.here.shape);
     const x = ROOM_X + (centre.col + 0.5) * TILE;
     const y = ROOM_Y + (centre.row + 1) * TILE - 6;
+    if (drop.startsWith('coin:')) {
+      this.dropCoin(drop.slice(5) as CoinKind, x, y, fresh, () => {
+        const drops = { ...this.run.drops };
+        delete drops[this.here.id];
+        this.run.drops = drops;
+        this.syncMap();
+      });
+      return;
+    }
     const done = () => {
       const drops = { ...this.run.drops };
       delete drops[this.here.id];
@@ -741,8 +945,9 @@ export default class PlayScene extends Phaser.Scene {
         return done();
       });
     } else {
-      this.addPickup(itemTexture(drop), x, y, 18, ITEMS[drop].color, 20, 0, () => {
-        this.takeItem(drop);
+      const id = drop as ItemId;
+      this.addPickup(itemTexture(id), x, y, 18, ITEMS[id].color, 20, 0, () => {
+        this.takeItem(id);
         return done();
       });
     }
@@ -900,7 +1105,7 @@ export default class PlayScene extends Phaser.Scene {
         cells: r.shape.cells.map(([x, y]) => ({ x: r.gx + x, y: r.gy + y })),
         kind: r.kind,
         state: r.id === this.here.id ? 'current' : visited.has(r.id) ? 'visited' : 'seen',
-        loot: r.id === this.here.id ? undefined : this.run.drops?.[r.id] === undefined ? undefined : this.run.drops[r.id] === 'energy' ? 'energy' : 'item',
+        loot: r.id === this.here.id ? undefined : lootOf(this.run.drops?.[r.id]),
         // Doors to rooms that are also on the map, as the grid cell and side they leave from.
         doors: visited.has(r.id)
           ? doorLinks(this.floor, r).map((l) => ({ x: r.gx + l.x, y: r.gy + l.y, side: l.side }))
@@ -975,6 +1180,8 @@ export default class PlayScene extends Phaser.Scene {
         ? 'Piano 1 — Sito dello schianto'
         : this.here.kind === 'treasure'
           ? 'Stanza del tesoro'
+          : this.here.kind === 'shop'
+            ? 'Negozio'
           : this.here.kind === 'boss' && !this.run.cleared.includes(this.here.id)
             ? 'Tana del boss'
             : null;
@@ -1297,6 +1504,7 @@ export default class PlayScene extends Phaser.Scene {
       const shot = child as Phaser.Physics.Arcade.Image;
       if (!shot.active || shot.getData('dropping')) continue;
       if (homing && targets.length) this.steerShot(shot, targets, dt);
+      if (this.breakables.length && this.hitBreakable(shot)) continue;
       this.placeShotShadow(shot);
       this.trail.emitParticleAt(shot.x, shot.y, 1);
       // Plasma shimmer once the spawn pop is over.
@@ -1513,7 +1721,14 @@ export default class PlayScene extends Phaser.Scene {
       const id = rng.next() < 0.5 ? rng.pick(CRASH_SITE.litDecor) : rng.pick(CRASH_SITE.decor);
       const x = ROOM_X + spot.c * TILE + rng.int(8, TILE - 8);
       const baseY = ROOM_Y + spot.r * TILE + rng.int(16, TILE - 4);
-      this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
+      const prop = this.addProp(propKey(CRASH_SITE, id), x, baseY, false, id, rng);
+      // Plain debris (not the glowing props) can be shot to pieces.
+      if (!CRASH_SITE.litDecor.includes(id)) this.breakables.push({ prop, index: i, hp: PROP_HP });
+    }
+    // Props broken on an earlier visit stay broken.
+    for (const index of this.run.broken?.[this.here.id] ?? []) {
+      const b = this.breakables.find((x) => x.index === index);
+      if (b) this.breakProp(b, false);
     }
 
     // Bioluminescent crystals along the edges: decoration and light sources.

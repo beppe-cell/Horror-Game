@@ -172,11 +172,15 @@ export const ENERGY_HEAL = 2;
 
 /**
  * What a cleared room leaves behind, from one roll in [0, 1): a rare item,
- * an energy cell, or nothing.
+ * an energy cell, a coin, or nothing.
  */
-export function rollRoomReward(roll: number, luck: number): 'item' | 'energy' | null {
+export function rollRoomReward(roll: number, luck: number): 'item' | 'energy' | 'coin' | null {
   const item = itemDropChance(luck);
   if (roll < item) return 'item';
   if (roll < item + energyDropChance(luck)) return 'energy';
+  if (roll < item + energyDropChance(luck) + COIN_DROP_CHANCE) return 'coin';
   return null;
 }
+
+/** Chance (after items and energy) that a cleared room leaves a coin. */
+export const COIN_DROP_CHANCE = 0.4;

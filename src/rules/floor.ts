@@ -2,14 +2,14 @@
  * Floor layout: rooms on a grid, joined through the middle of their walls.
  * A room fills one grid cell or several: a wide or tall double room, a big
  * 2×2 room or an L of three cells. The start room is a single cell in the
- * middle; the boss room is the dead end farthest from it and the treasure
- * room another dead end. Same seed, same floor.
+ * middle; the boss room is the dead end farthest from it, the treasure room
+ * and the shop other dead ends. Same seed, same floor.
  */
 import { Rng } from './rng';
 import { RoomShape, SINGLE } from './room';
 
 export type Side = 'up' | 'down' | 'left' | 'right';
-export type RoomKind = 'start' | 'normal' | 'treasure' | 'boss';
+export type RoomKind = 'start' | 'normal' | 'treasure' | 'boss' | 'shop';
 
 export interface FloorRoom {
   id: number;
@@ -142,11 +142,14 @@ export function generateFloor(rng: Rng, count = 9): FloorLayout {
     const deadEnds = rooms
       .filter((r) => r.kind === 'normal' && doorLinks(floor, r).length === 1)
       .sort((a, b) => b.depth - a.depth);
-    if (rooms.length < count || deadEnds.length < 2) continue;
+    if (rooms.length < count || deadEnds.length < 3) continue;
     deadEnds[0].kind = 'boss';
-    // The treasure room is a small one: its pedestal stands in the middle.
-    const small = deadEnds.slice(1).filter((r) => r.shape.cells.length === 1);
-    rng.pick(small.length ? small : deadEnds.slice(1)).kind = 'treasure';
+    // The treasure room and the shop are small ones: their pedestals stand in the middle.
+    for (const kind of ['treasure', 'shop'] as const) {
+      const left = deadEnds.filter((r) => r.kind === 'normal');
+      const small = left.filter((r) => r.shape.cells.length === 1);
+      rng.pick(small.length ? small : left).kind = kind;
+    }
     return floor;
   }
   throw new Error('generateFloor: no layout found');
