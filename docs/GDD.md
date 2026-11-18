@@ -82,12 +82,13 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 - 15 tipi di nemici, 3 per piano.
 - 7 boss: uno per piano, più un'alternativa casuale ai piani 1 e 2.
 - 3-5 nemici per stanza, fermi per 1 secondo all'ingresso (si "svegliano"), mai a meno di 4 tile dal punto di partenza del giocatore.
+- Al massimo 2 tipi di nemici per stanza (l'annegato conta come uno). I piccoli (zecca, sentinella) arrivano fino a 4 dello stesso tipo, i grandi (sacca gonfia, sputatore, ex-minatore) al massimo 2: le stanze con nemici grandi ne hanno meno.
 
 ### Piano 1 (sito dello schianto)
 
 | Nemico | Vita | Comportamento | Danno a contatto |
 |---|---|---|---|
-| Strisciante (zecca aliena) | 7 | Insegue strisciando con un ondeggiamento laterale | ½ cella |
+| Zecca aliena | 7 | Corre a scatti verso il giocatore con un ondeggiamento laterale | ½ cella |
 | Sputatore (fungo-creatura) | 10 | Fermo; ogni 2,2 s si gonfia (avviso) e spara una spora verso il giocatore | ½ cella (anche la spora) |
 | Ex-minatore infetto | 22 | Lento; se il giocatore è entro 2,6 tile si blocca e trema in rosso (avviso), poi carica a 4,2 tile/s; dopo la carica si riprende per 1,4 s | 1 cella |
 | Sentinella guasta (drone) | 8 | Vola sopra rocce e acqua; resta a circa 3,5 tile girando attorno al giocatore; ogni 2,6 s si ferma (avviso) e spara tre raggi rossi a ventaglio | ½ cella (anche i raggi) |

@@ -180,3 +180,59 @@ export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number):
     }
   }
 }
+
+/** How often each kind is picked for a room's roster. */
+export const SPAWN_WEIGHTS: readonly [EnemyKind, number][] = [
+  ['crawler', 3],
+  ['spitter', 1],
+  ['drone', 1],
+  ['bloater', 1],
+  ['miner', 1],
+];
+
+/**
+ * Most of one kind in a room: small, weak enemies come in groups, big ones
+ * at most in pairs.
+ */
+export const MAX_PER_ROOM: Record<EnemyKind, number> = {
+  crawler: 4,
+  drone: 4,
+  bloater: 2,
+  spitter: 2,
+  miner: 2,
+  lurker: 1,
+};
+
+interface RosterRng {
+  next(): number;
+  int(min: number, max: number): number;
+}
+
+/**
+ * Which enemies a room holds: at most two kinds (`taken` kinds, like a
+ * lurker already in a pool, count towards the two), each up to its cap.
+ * Aims for `target` enemies, but big kinds may leave the room with fewer.
+ */
+export function roomRoster(rng: RosterRng, target: number, taken: readonly EnemyKind[] = []): EnemyKind[] {
+  const kinds: EnemyKind[] = [];
+  // Two kinds most of the time, one otherwise; always at least one besides what is already there.
+  const free = Math.max(1, 2 - taken.length);
+  const want = free >= 2 && rng.next() < 0.7 ? 2 : 1;
+  for (let i = 0; i < want; i++) {
+    const pool = SPAWN_WEIGHTS.filter(([k]) => !kinds.includes(k));
+    const total = pool.reduce((s, [, w]) => s + w, 0);
+    let roll = rng.next() * total;
+    kinds.push(pool.find(([, w]) => (roll -= w) < 0)?.[0] ?? pool[0][0]);
+  }
+  const roster: EnemyKind[] = [];
+  const count = new Map<EnemyKind, number>();
+  // Deal the enemies out in turn until the target is met or every kind is full.
+  for (let i = 0; roster.length < target; i++) {
+    const open = kinds.filter((k) => (count.get(k) ?? 0) < MAX_PER_ROOM[k]);
+    if (!open.length) break;
+    const k = open[i % open.length];
+    count.set(k, (count.get(k) ?? 0) + 1);
+    roster.push(k);
+  }
+  return roster;
+}

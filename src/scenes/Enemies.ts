@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
-import { BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, stepEnemy } from '../rules/enemies';
+import { BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy } from '../rules/enemies';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
 
@@ -183,14 +183,6 @@ interface Enemy {
 /** Height of player shots above the floor, in pixels (matches PlayScene). */
 const SHOT_FLIGHT_HEIGHT = 16;
 
-/** How many of each kind appear in a room, by weight. */
-const SPAWN_WEIGHTS: [EnemyKind, number][] = [
-  ['crawler', 3],
-  ['spitter', 1],
-  ['drone', 1],
-  ['bloater', 1],
-  ['miner', 1],
-];
 
 /**
  * Enemies of the current room: spawning, behaviour (rules/enemies.ts),
@@ -323,21 +315,22 @@ export class EnemyManager {
       const p = toWorld(cell.c, cell.r);
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
-    if (pools.length && rng.next() < 0.6) {
+    const taken: EnemyKind[] = [];
+    if (pools.length && rng.next() < 0.5) {
       const cell = rng.pick(pools);
       const p = toWorld(cell.c, cell.r);
       this.add('lurker', p.x, p.y, rng.next());
+      taken.push('lurker');
     }
     const far = cells.filter((cell) => {
       const p = toWorld(cell.c, cell.r);
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
-    const count = Math.min(far.length, rng.int(3, 5) + extra);
-    const total = SPAWN_WEIGHTS.reduce((s, [, w]) => s + w, 0);
-    for (let i = 0; i < count; i++) {
+    // At most two kinds per room; small ones in bigger groups, big ones in pairs.
+    const roster = roomRoster(rng, rng.int(3, 5) + extra, taken);
+    for (const kind of roster) {
+      if (!far.length) break;
       const cell = far.splice(rng.int(0, far.length - 1), 1)[0];
-      let roll = rng.next() * total;
-      const kind = SPAWN_WEIGHTS.find(([, w]) => (roll -= w) < 0)?.[0] ?? 'crawler';
       const p = toWorld(cell.c, cell.r);
       this.add(kind, p.x, p.y, rng.next());
     }
