@@ -148,7 +148,43 @@ export const HIVE: Biome = {
 };
 
 /** Biome of each floor, from the first; deeper floors reuse the last one until their art exists. */
-export const BIOMES: readonly Biome[] = [CRASH_SITE, HIVE];
+export const CRYSTAL: Biome = {
+  key: '3-crystal',
+  title: 'Piano 3 — Le grotte di cristallo',
+  hole: 24,
+  floors: [
+    { id: 0, weight: 50 },
+    { id: 1, weight: 5 },
+    { id: 4, weight: 4 },
+    { id: 3, weight: 3 },
+  ],
+  decals: [15, 21, 22],
+  wallFaces: [7, 7, 11, 6],
+  doorClosed: 12,
+  doorAnim: { file: 'door', frames: [0, 1] },
+  // Dark crystal-studded rocks, a monolith, frozen blocks, a geode, a dead machine.
+  obstacles: [2, 2, 15, 5, 18, 3, 17],
+  decor: [1, 4, 6, 7, 10, 11, 12, 8, 9],
+  crystals: [0, 13, 16],
+  lamps: {
+    0: { color: 0x5af0ff, radius: 110, intensity: 0.85, kind: 'pulse' }, // cyan crystal cluster
+    13: { color: 0x5af0ff, radius: 120, intensity: 0.9, kind: 'pulse' }, // big cyan crystal
+    16: { color: 0xa060ff, radius: 100, intensity: 0.85, kind: 'pulse' }, // violet crystals
+    8: { color: 0x5af0ff, radius: 45, intensity: 0.6, kind: 'pulse' }, // small cyan crystal
+    9: { color: 0xa060ff, radius: 40, intensity: 0.6, kind: 'pulse' }, // small violet crystal
+  },
+  litDecor: [8, 9],
+  animated: {},
+  effects: {
+    0: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 450 }],
+    13: [{ type: 'sparkle', fx: 0.5, fy: 0.25, every: 400 }],
+    16: [{ type: 'sparkle', fx: 0.5, fy: 0.3, every: 500 }],
+  },
+  rock: '#070a12',
+  door: { metal: '#3a3450', metalLight: '#6a5a90', dark: '#05060c', stripe: '#5af0ff', outline: '#0b0d14' },
+};
+
+export const BIOMES: readonly Biome[] = [CRASH_SITE, HIVE, CRYSTAL];
 
 export const biomeFor = (floor: number): Biome => BIOMES[Math.min(BIOMES.length, Math.max(1, floor)) - 1];
 

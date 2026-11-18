@@ -16,9 +16,9 @@ import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
-import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
+import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, itemQuality, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
-import { COIN_NAME, COIN_VALUE, CoinKind, PRICE, PROP_COIN_CHANCE, PROP_HP, rollCoin } from '../rules/coins';
+import { COIN_NAME, COIN_VALUE, CoinKind, PROP_COIN_CHANCE, PROP_HP, energyPrice, itemPrice, rollCoin } from '../rules/coins';
 import { COINS_KEY, COIN_FRAME, ITEMS2_KEY, ITEMS_KEY, SHOP_PROPS, coinSpinKey, itemTexture, makeCoinAnims, preloadItemArt } from '../render/itemIcons';
 import { ItemAuras } from '../render/ItemAuras';
 import { OVERLAY_BOXES } from '../render/overlayBoxes';
@@ -768,17 +768,19 @@ export default class PlayScene extends Phaser.Scene {
       const x = ROOM_X + (centre.col + 0.5 + (i - 1.5) * 2.4) * TILE;
       this.placePedestal(x, baseY);
       if (bought.includes(i)) return;
-      const tag = label(x, baseY + 2, PRICE.item);
-      const p = this.addPickup(itemTexture(id), x, baseY, 40, ITEMS[id].color, 26, PEDESTAL_TOP, buy(i, PRICE.item, () => (this.takeItem(id), true), tag));
+      // Better items cost more, and everything costs more deeper down.
+      const price = itemPrice(itemQuality(id), this.run.floor ?? 1);
+      const tag = label(x, baseY + 2, price);
+      const p = this.addPickup(itemTexture(id), x, baseY, 40, ITEMS[id].color, 26, PEDESTAL_TOP, buy(i, price, () => (this.takeItem(id), true), tag));
       p.fixed = true;
     });
     // The energy cell lies on the floor at the end of the row.
     const ex = ROOM_X + (centre.col + 0.5 + 1.5 * 2.4) * TILE;
     if (!bought.includes(3)) {
-      const tag = label(ex, baseY + 2, PRICE.energy);
+      const tag = label(ex, baseY + 2, energyPrice(this.run.floor ?? 1));
       const take = buy(
         3,
-        PRICE.energy,
+        energyPrice(this.run.floor ?? 1),
         () => {
           if (this.health.hp >= this.health.max) return false;
           this.health = heal(this.health, ENERGY_HEAL);

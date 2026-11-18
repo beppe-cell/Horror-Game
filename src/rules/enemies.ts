@@ -322,7 +322,20 @@ export const HIVE_WEIGHTS: readonly [EnemyKind, number][] = [
   ['slime', 2],
   ['jelly', 2],
 ];
-export const weightsFor = (floor: number): readonly [EnemyKind, number][] => (floor >= 2 ? HIVE_WEIGHTS : SPAWN_WEIGHTS);
+/**
+ * The crystal caves: until their own enemies are drawn, a mix of the
+ * toughest from the floors above.
+ */
+export const CRYSTAL_WEIGHTS: readonly [EnemyKind, number][] = [
+  ['jelly', 2],
+  ['slime', 2],
+  ['guardian', 2],
+  ['drone', 2],
+  ['miner', 1],
+  ['worker', 2],
+];
+export const weightsFor = (floor: number): readonly [EnemyKind, number][] =>
+  floor >= 3 ? CRYSTAL_WEIGHTS : floor === 2 ? HIVE_WEIGHTS : SPAWN_WEIGHTS;
 
 /**
  * Most of one kind in a room: small, weak enemies come in groups, big ones
