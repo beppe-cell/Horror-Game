@@ -164,3 +164,32 @@ export function generateRoom(rng: Rng, doors: readonly Door[], options: RoomOpti
   }
   return { cells, doors: [...doors] };
 }
+
+/**
+ * Covers the solid tiles of a grid with as few rectangles as a simple
+ * greedy pass finds: grow right as far as possible, then down while the
+ * whole row below is solid too. Fewer, bigger colliders mean no seams for
+ * a body sliding along a wall to catch on.
+ */
+export function solidRects(solid: readonly (readonly boolean[])[]): { x: number; y: number; w: number; h: number }[] {
+  const rows = solid.length;
+  const cols = rows ? solid[0].length : 0;
+  const used = solid.map((row) => row.map(() => false));
+  const rects: { x: number; y: number; w: number; h: number }[] = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (!solid[y][x] || used[y][x]) continue;
+      let w = 1;
+      while (x + w < cols && solid[y][x + w] && !used[y][x + w]) w++;
+      let h = 1;
+      const rowFree = (ry: number) => {
+        for (let i = 0; i < w; i++) if (!solid[ry][x + i] || used[ry][x + i]) return false;
+        return true;
+      };
+      while (y + h < rows && rowFree(y + h)) h++;
+      for (let ry = y; ry < y + h; ry++) for (let i = 0; i < w; i++) used[ry][x + i] = true;
+      rects.push({ x, y, w, h });
+    }
+  }
+  return rects;
+}

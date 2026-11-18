@@ -18,9 +18,12 @@ const ENRAGED_CRAWL_MS = 1500;
 const SPORE_WINDUP_MS = 800;
 const RECOVER_MS = 700;
 const SINK_MS = 600;
-const UNDER_SPEED = 3.4;
-const UNDER_MIN_MS = 600;
-const UNDER_MAX_MS = 1800;
+/**
+ * Time under the ground. When she sinks she picks the spot where the
+ * astronaut stands, a warning appears there at once, and she bursts out on
+ * that spot when this time is up: enough to see it and step away.
+ */
+export const UNDER_MS = 1300;
 const EMERGE_MS = 600;
 const BROOD_WINDUP_MS = 750;
 /** Spores in one ring. */
@@ -48,6 +51,8 @@ export interface BossState {
   since: number;
   /** Attacks done so far; picks the next one from ATTACK_ORDER. */
   attacks: number;
+  /** Where she will burst out, in tiles (set while under the ground). */
+  target?: Vec2;
 }
 
 export interface BossStep {
@@ -63,6 +68,8 @@ export interface BossStep {
   brood?: number;
   /** She bursts out of the ground this step. */
   emerge?: boolean;
+  /** While under the ground: where she will come out, and 0..1 of the wait done. */
+  warning?: { at: Vec2; progress: number };
 }
 
 export function newBoss(now: number): BossState {
@@ -119,16 +126,24 @@ export function stepBoss(s: BossState, self: Vec2, player: Vec2, now: number, hp
         anim: 'brood',
         brood: Math.max(0, Math.min(enraged ? ENRAGED_BROOD : BROOD, MAX_BROOD - broodAlive)),
       };
-    case 'sink':
+    case 'sink': {
       if (!done) return { ...base, state: s, anim: 'burrow' };
-      return { ...base, state: to(s, 'under', now, UNDER_MAX_MS), anim: 'burrow', hidden: true };
+      // Lock the spot where the astronaut stands now.
+      const next = { ...to(s, 'under', now, UNDER_MS), target: { ...player } };
+      return { ...base, state: next, anim: 'burrow', hidden: true, warning: { at: next.target, progress: 0 } };
+    }
     case 'under': {
-      const arrived = dist < 0.25 && now - s.since >= UNDER_MIN_MS;
-      if (!done && !arrived) {
-        const v = Math.min(UNDER_SPEED, dist * 6);
-        return { ...base, state: s, velocity: { x: dir.x * v, y: dir.y * v }, anim: 'burrow', hidden: true };
+      const target = s.target ?? player;
+      const tx = target.x - self.x;
+      const ty = target.y - self.y;
+      const left = Math.max(1, s.until - now) / 1000;
+      if (!done) {
+        // Tunnel towards the spot so she is exactly there when time is up.
+        const velocity = { x: tx / left, y: ty / left };
+        const progress = Math.min(1, (now - s.since) / UNDER_MS);
+        return { ...base, state: s, velocity, anim: 'burrow', hidden: true, warning: { at: target, progress } };
       }
-      return { ...base, state: to(s, 'emerge', now, EMERGE_MS), anim: 'burrow', emerge: true, ring: enraged ? 8 : undefined };
+      return { ...base, state: { ...to(s, 'emerge', now, EMERGE_MS), target: undefined }, anim: 'burrow', emerge: true, ring: enraged ? 8 : undefined };
     }
     case 'emerge':
     case 'recover':

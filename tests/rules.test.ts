@@ -303,3 +303,17 @@ describe('floating touch stick', () => {
     expect(followOrigin({ x: 0, y: 0 }, { x: 30, y: 0 }, 10)).toEqual({ x: 20, y: 0 });
   });
 });
+
+describe('wall colliders', () => {
+  it('cover every solid tile once, with few rectangles', async () => {
+    const { solidRects } = await import('../src/rules/room');
+    // A 17×11 frame: 2-tile wall ring around an open interior, one door gap at the top.
+    const grid = Array.from({ length: 11 }, (_, y) => Array.from({ length: 17 }, (_, x) => x < 2 || x > 14 || y < 2 || y > 8));
+    grid[0][8] = grid[1][8] = false;
+    const rects = solidRects(grid);
+    const covered = new Map<string, number>();
+    for (const r of rects) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) covered.set(`${x},${y}`, (covered.get(`${x},${y}`) ?? 0) + 1);
+    grid.forEach((row, y) => row.forEach((s, x) => expect(covered.get(`${x},${y}`) ?? 0).toBe(s ? 1 : 0)));
+    expect(rects.length).toBeLessThanOrEqual(5);
+  });
+});

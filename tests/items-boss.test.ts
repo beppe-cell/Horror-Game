@@ -3,7 +3,7 @@ import { Rng } from '../src/rules/rng';
 import { ITEM_IDS, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../src/rules/items';
 import { BASE_STATS, computeStats } from '../src/rules/stats';
 import { heal, newHealth } from '../src/rules/health';
-import { BossState, ENRAGED_RING, MAX_BROOD, RING, newBoss, nextAttack, stepBoss } from '../src/rules/boss';
+import { BossState, ENRAGED_RING, MAX_BROOD, RING, UNDER_MS, newBoss, nextAttack, stepBoss } from '../src/rules/boss';
 
 describe('items', () => {
   it('never offers an item the player has', () => {
@@ -65,15 +65,18 @@ describe('brood mother', () => {
     expect(nextAttack(2, MAX_BROOD)).toBe('spores');
   });
 
-  it('burrows to the player and bursts out', () => {
+  it('burrows to where the player stood, with a warning there, then bursts out', () => {
     let s: BossState = { phase: 'sink', until: 0, since: 0, attacks: 2 };
-    let step = run(s, 1);
+    let step = run(s, 1, 1, 0, { x: 0, y: 0 }, { x: 5, y: 0 });
     expect(step.hidden).toBe(true);
+    expect(step.warning?.at).toEqual({ x: 5, y: 0 });
     s = step.state;
-    step = run(s, 100);
+    // The player walks away: the spot stays where it was.
+    step = run(s, 400, 1, 0, { x: 0, y: 0 }, { x: 9, y: 3 });
+    expect(step.warning?.at).toEqual({ x: 5, y: 0 });
     expect(step.velocity.x).toBeGreaterThan(0);
-    // Standing on the player after the minimum time: she comes out.
-    step = run(s, 1000, 1, 0, { x: 5, y: 0 });
+    expect(step.warning!.progress).toBeGreaterThan(0.2);
+    step = run(s, 1 + UNDER_MS, 1, 0, { x: 5, y: 0 }, { x: 9, y: 3 });
     expect(step.emerge).toBe(true);
     expect(step.state.phase).toBe('emerge');
   });

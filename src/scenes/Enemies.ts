@@ -165,6 +165,8 @@ interface Boss {
   hp: number;
   flashUntil: number;
   nextDirt: number;
+  /** Where she went under, in world pixels, while tunnelling. */
+  burrowFrom?: { x: number; y: number };
 }
 
 interface Enemy {
@@ -199,6 +201,10 @@ export class EnemyManager {
   private enemies: Enemy[] = [];
   private boss?: Boss;
   private dirt!: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** Red cracking ring on the floor where the boss will burst out. */
+  private warn?: Phaser.GameObjects.Graphics;
+  /** The last spot warned about, in tiles, so she emerges exactly there. */
+  private lastWarning?: { x: number; y: number };
   /** Boss health from 0 to 1 after each hit; 0 when she dies. */
   onBossHealth?: (frac: number) => void;
   private spores!: Phaser.Physics.Arcade.Group;
@@ -362,9 +368,9 @@ export class EnemyManager {
     return this.enemies.find((e) => e.sprite === sprite);
   }
 
-  update(time: number, delta = 16): void {
+  update(time: number): void {
     this.checkShots();
-    this.updateBoss(time, delta / 1000);
+    this.updateBoss(time);
     const t = this.host.tile;
     const feet = this.host.playerFeet();
     for (const e of this.enemies) {
@@ -555,7 +561,7 @@ export class EnemyManager {
   }
 
   /** Brood Mother behaviour: crawl, ring of spores, burrow, brood. */
-  private updateBoss(time: number, dt: number): void {
+  private updateBoss(time: number): void {
     const b = this.boss;
     if (!b) return;
     const t = this.host.tile;
@@ -573,13 +579,28 @@ export class EnemyManager {
         body.enable = false;
         this.host.shakeAdd(0.25);
       }
-      s.x = Phaser.Math.Clamp(s.x + step.velocity.x * t * dt, bx + 40, bx + bw - 40);
-      s.y = Phaser.Math.Clamp(s.y + step.velocity.y * t * dt, by + 12, by + bh - 4);
+      // Her position follows the clock, not the frame steps, so she comes
+      // up exactly on the warning even when the frame rate dips.
+      if (step.warning) {
+        b.burrowFrom ??= { x: s.x, y: s.y };
+        const p = step.warning.progress;
+        s.x = Phaser.Math.Clamp(b.burrowFrom.x + (step.warning.at.x * t - b.burrowFrom.x) * p, bx + 40, bx + bw - 40);
+        s.y = Phaser.Math.Clamp(b.burrowFrom.y + (step.warning.at.y * t - b.burrowFrom.y) * p, by + 12, by + bh - 4);
+      }
       if (time >= b.nextDirt) {
         this.dirt.explode(4, s.x, s.y);
         b.nextDirt = time + 70;
       }
     } else {
+      if (step.emerge && b.burrowFrom) {
+        // Last step: snap onto the spot the warning showed.
+        const w = this.lastWarning;
+        if (w) {
+          s.x = Phaser.Math.Clamp(w.x * t, bx + 40, bx + bw - 40);
+          s.y = Phaser.Math.Clamp(w.y * t, by + 12, by + bh - 4);
+        }
+      }
+      b.burrowFrom = undefined;
       if (!s.visible) {
         s.setVisible(true);
         body.enable = true;
@@ -610,6 +631,7 @@ export class EnemyManager {
         this.goo.explode(10, x, y - 6);
       }
     }
+    this.drawWarning(step.warning, time);
     if (step.emerge) {
       this.dirt.explode(30, s.x, s.y);
       this.host.shakeAdd(0.55);
@@ -626,10 +648,41 @@ export class EnemyManager {
     s.setDepth(this.host.depthAt(s.y));
   }
 
+  /**
+   * Telegraph for the burrow: a red ring on the floor at the spot she will
+   * come out of, pulsing faster and growing brighter as the moment nears,
+   * with cracks spreading from the middle and dirt jumping out.
+   */
+  private drawWarning(w: { at: { x: number; y: number }; progress: number } | undefined, time: number): void {
+    const t = this.host.tile;
+    if (!w) {
+      this.warn?.setVisible(false);
+      return;
+    }
+    this.lastWarning = w.at;
+    if (!this.warn) this.warn = this.host.scene.add.graphics().setDepth(4.95);
+    const g = this.warn.setVisible(true).clear();
+    const x = w.at.x * t;
+    const y = w.at.y * t;
+    const p = w.progress;
+    const pulse = 0.5 + 0.5 * Math.sin(time / (140 - 100 * p));
+    const r = (1.2 + 0.3 * pulse) * t;
+    g.fillStyle(0xff2a3a, 0.12 + 0.25 * p).fillEllipse(x, y, r * 2, r);
+    g.lineStyle(2, 0xff4a5a, 0.45 + 0.5 * p * pulse).strokeEllipse(x, y, r * 2, r);
+    g.lineStyle(1, 0x1a0a0a, 0.5 + 0.4 * p);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.4;
+      const len = r * (0.3 + 0.6 * p);
+      g.lineBetween(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len * 0.5);
+    }
+    if (Math.random() < 0.15 + 0.5 * p) this.dirt.explode(2, x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r * 0.5);
+  }
+
   private killBoss(b: Boss): void {
     // Her brood dies with her.
     for (const e of [...this.enemies]) this.kill(e);
     this.boss = undefined;
+    this.warn?.setVisible(false);
     const s = b.sprite;
     s.setVisible(true).clearTint().setVelocity(0, 0);
     s.disableBody(true, false);
