@@ -18,6 +18,7 @@ import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
 import { ENERGY_CELL_FRAME, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
+import { shove, slide } from '../rules/slide';
 import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
 
@@ -106,10 +107,18 @@ export interface RunState {
 interface Pickup {
   icon: Phaser.GameObjects.Image;
   light: Phaser.GameObjects.Light;
+  /** Ground point, in world pixels. */
   x: number;
   y: number;
+  /** Sliding velocity after a shove, px/s. */
+  vx: number;
+  vy: number;
+  /** Height the icon floats at above its ground point. */
+  lift: number;
+  /** Bob phase, so pickups do not float in step. */
+  phase: number;
   radius: number;
-  /** Returns false to leave it on the floor (for example a full suit). */
+  /** Returns false to leave it on the floor (for example a full suit): the boots shove it instead. */
   take: () => boolean;
 }
 
@@ -419,22 +428,52 @@ export default class PlayScene extends Phaser.Scene {
   private addPickup(frame: number, x: number, groundY: number, lift: number, color: number, radius: number, take: () => boolean): void {
     const y = groundY - lift;
     const icon = this.add.image(x, y, ITEMS_KEY, frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
-    this.tweens.add({ targets: icon, y: y - 3, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     const light = this.lights.addLight(x, y, 70, color, 0.9);
-    this.pickups.push({ icon, light, x, y: groundY, radius, take });
+    this.pickups.push({ icon, light, x, y: groundY, vx: 0, vy: 0, lift, phase: Math.random() * 6, radius, take });
   }
 
-  private updatePickups(): void {
+  /** True where a sliding pickup cannot go: outside the floor or into a rock. */
+  private blockedAt(x: number, y: number): boolean {
+    const c = Math.floor((x - ROOM_X) / TILE);
+    const r = Math.floor((y - ROOM_Y) / TILE);
+    if (x < ROOM_X + 6 || x > ROOM_X + ROOM_W - 6 || y < ROOM_Y + 8 || y > ROOM_Y + ROOM_H - 2) return true;
+    return this.room.cells[r]?.[c] === 'rock';
+  }
+
+  /**
+   * Pickups bob in the air. Walking onto one takes it; if it cannot be taken
+   * yet (a full suit), the boots shove it and it slides away and stops.
+   */
+  private updatePickups(time: number, dt: number): void {
     const feet = this.playerFeet();
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
     for (const p of this.pickups) {
-      if (Math.hypot(feet.x - p.x, feet.y - p.y) > p.radius || !p.take()) continue;
-      this.pickups = this.pickups.filter((x) => x !== p);
-      this.tweens.killTweensOf(p.icon);
-      this.tweens.add({ targets: p.icon, y: p.icon.y - 24, alpha: 0, duration: 400, ease: 'Quad.Out', onComplete: () => p.icon.destroy() });
-      this.tweens.add({ targets: p.light, intensity: 0, duration: 400, onComplete: () => this.lights.removeLight(p.light) });
-      this.sparks.setEmitterAngle({ min: 0, max: 360 });
-      this.sparks.explode(16, p.icon.x, p.icon.y);
+      const near = !this.dead && !this.leaving && Math.hypot(feet.x - p.x, feet.y - p.y) <= p.radius;
+      if (near && !p.take()) {
+        const wasStill = Math.hypot(p.vx, p.vy) < 20;
+        Object.assign(p, shove(p, feet.x, feet.y, body.velocity.length()));
+        if (wasStill) {
+          this.sparks.setEmitterAngle({ min: 200, max: 340 });
+          this.sparks.explode(4, p.x, p.y);
+        }
+      } else if (near) {
+        this.collect(p);
+        continue;
+      }
+      Object.assign(p, slide(p, dt, (x, y) => this.blockedAt(x, y)));
+      const bob = Math.sin(time / 290 + p.phase) * 1.5;
+      p.icon.setPosition(p.x, p.y - p.lift + bob).setRotation(p.vx * 0.003).setDepth(depthAt(p.y) + 0.01);
+      p.light.setPosition(p.x, p.y - p.lift);
     }
+  }
+
+  /** Takes a pickup: it rises, fades and sparkles. */
+  private collect(p: Pickup): void {
+    this.pickups = this.pickups.filter((x) => x !== p);
+    this.tweens.add({ targets: p.icon, y: p.icon.y - 24, alpha: 0, duration: 400, ease: 'Quad.Out', onComplete: () => p.icon.destroy() });
+    this.tweens.add({ targets: p.light, intensity: 0, duration: 400, onComplete: () => this.lights.removeLight(p.light) });
+    this.sparks.setEmitterAngle({ min: 0, max: 360 });
+    this.sparks.explode(16, p.icon.x, p.icon.y);
   }
 
   /** Adds an item to the run: stats, suit and shot effects change at once. */
@@ -630,7 +669,7 @@ export default class PlayScene extends Phaser.Scene {
       if (side) this.leave(side);
     }
     this.enemies.update(time, delta);
-    if (!this.dead && !this.leaving) this.updatePickups();
+    this.updatePickups(time, delta / 1000);
     if (!this.hudSynced && this.hud()) {
       this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
       const bossFight = this.here.kind === 'boss' && this.enemies.alive > 0;

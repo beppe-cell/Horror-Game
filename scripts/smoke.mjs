@@ -111,6 +111,22 @@ try {
     await page.screenshot({ path: 'smoke-treasure.png' });
     if (items.length !== 1) errors.push(`[desktop] treasure item not taken: ${JSON.stringify(items)}`);
 
+    // A pickup that cannot be taken (full suit) is shoved by the boots and slides away.
+    const startX = await page.evaluate(() => {
+      const s = window.game.scene.getScene('play');
+      const f = s.playerFeet();
+      s.addPickup(11, f.x + 6, f.y, 14, 0x39d0ff, 16, () => false);
+      return f.x + 6;
+    });
+    await page.waitForTimeout(700);
+    const slid = await page.evaluate(() => {
+      const s = window.game.scene.getScene('play');
+      const p = s.pickups[s.pickups.length - 1];
+      return { x: p.x, vx: p.vx, left: s.pickups.length };
+    });
+    // Headless Chromium runs the game slowly: check the shove, not the distance.
+    if (!(slid.x > startX && slid.vx > 0)) errors.push(`[desktop] refused pickup did not slide: ${JSON.stringify({ startX, ...slid })}`);
+
     // Boss room: she wakes and moves, then dies and the doors open.
     await goTo('boss');
     await page.evaluate(() => (window.game.scene.getScene('play').health.invulnerableUntil = 1e12));
