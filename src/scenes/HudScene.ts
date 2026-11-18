@@ -21,6 +21,8 @@ export interface MapRoom {
   cells: { x: number; y: number }[];
   kind: 'start' | 'normal' | 'treasure' | 'boss';
   state: 'current' | 'visited' | 'seen';
+  /** A reward left lying in the room: shown so the player can come back for it. */
+  loot?: 'item' | 'energy';
   /** Doors of the room, drawn as short links across the gaps. */
   doors: { x: number; y: number; side: 'up' | 'down' | 'left' | 'right' }[];
 }
@@ -87,6 +89,10 @@ export default class HudScene extends Phaser.Scene {
     this.statTexts = [];
     this.layout();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
+  }
+
+  update(): void {
+    this.touch?.update();
   }
 
   private layout(): void {
@@ -190,6 +196,19 @@ export default class HudScene extends Phaser.Scene {
         g.fillStyle(0xffd34d, 1).fillRect(cx - 3, cy, 7, 2);
         g.fillRect(cx - 3, cy - 3, 1, 3).fillRect(cx, cy - 3, 1, 3).fillRect(cx + 3, cy - 3, 1, 3);
         g.fillStyle(0xb8862a, 1).fillRect(cx - 3, cy + 2, 7, 1);
+      }
+      if (r.loot) {
+        // A reward left on the floor: next to the room's own icon if it has one, else in the middle.
+        const lx = r.kind === 'boss' || r.kind === 'treasure' ? cx + 4 : cx;
+        if (r.loot === 'energy') {
+          g.fillStyle(0x0b0b0b, 1).fillRect(lx - 2, cy - 3, 5, 7);
+          g.fillStyle(0x39d0ff, 1).fillRect(lx - 1, cy - 2, 3, 5);
+          g.fillStyle(0xffffff, 1).fillRect(lx, cy - 1, 1, 3);
+        } else {
+          g.fillStyle(0x0b0b0b, 1).fillRect(lx - 3, cy - 3, 7, 7);
+          g.fillStyle(0xffd34d, 1).fillRect(lx - 2, cy - 1, 5, 1).fillRect(lx, cy - 2, 1, 3);
+          g.fillStyle(0xfff0b0, 1).fillRect(lx - 1, cy - 1, 3, 1);
+        }
       }
     }
   }

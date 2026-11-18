@@ -36,9 +36,9 @@ describe('items', () => {
   });
 
   it('caps the drop chance', () => {
-    expect(energyDropChance(0)).toBeCloseTo(0.3);
-    expect(energyDropChance(100)).toBe(0.85);
-    expect(energyDropChance(-100)).toBe(0.1);
+    expect(energyDropChance(0)).toBeCloseTo(0.22);
+    expect(energyDropChance(100)).toBe(0.6);
+    expect(energyDropChance(-100)).toBe(0.08);
   });
 });
 
@@ -81,5 +81,16 @@ describe('brood mother', () => {
   it('never lays more than the brood cap', () => {
     const s: BossState = { phase: 'brood', until: 0, since: 0, attacks: 3 };
     expect(run(s, 1, 1, MAX_BROOD - 1).brood).toBe(1);
+  });
+});
+
+describe('room rewards', () => {
+  it('gives a rare item, more often an energy cell, sometimes nothing', async () => {
+    const { rollRoomReward, itemDropChance } = await import('../src/rules/items');
+    expect(rollRoomReward(0, 0)).toBe('item');
+    expect(rollRoomReward(itemDropChance(0) + 0.01, 0)).toBe('energy');
+    expect(rollRoomReward(0.99, 0)).toBeNull();
+    // Luck makes items more likely.
+    expect(itemDropChance(5)).toBeGreaterThan(itemDropChance(0));
   });
 });

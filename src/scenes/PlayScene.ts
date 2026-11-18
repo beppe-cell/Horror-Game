@@ -16,7 +16,7 @@ import { addFog } from '../render/Fog';
 import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
-import { ENERGY_CELL_FRAME, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../rules/items';
+import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
 import { shove, slide } from '../rules/slide';
 import { EnemyManager, preloadEnemies } from './Enemies';
@@ -99,6 +99,8 @@ export interface RunState {
   items: ItemId[];
   /** Treasure rooms whose item was taken. */
   taken: number[];
+  /** Rewards lying on the floor of cleared rooms, by room id, until picked up. */
+  drops?: Record<number, ItemId | 'energy'>;
 }
 
 /** Something lying in the room that the astronaut picks up by walking onto it. */
@@ -195,6 +197,14 @@ export default class PlayScene extends Phaser.Scene {
   frameW = CELL_W + 2 * WALL;
   frameH = CELL_H + 2 * WALL;
   private leaving = false;
+  /**
+   * False until the first frames run smoothly: while textures upload and
+   * shaders compile the frame rate dips and physics slows down, so controls
+   * and enemies wait. Then any touch made while loading is dropped.
+   */
+  ready = false;
+  private steadyFrames = 0;
+  private createdAt = 0;
   private pickups: Pickup[] = [];
   /** Chalk tutorial on the start room floor, and which controls it shows. */
   private tutorial: Phaser.GameObjects.GameObject[] = [];
@@ -220,6 +230,8 @@ export default class PlayScene extends Phaser.Scene {
     this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [] };
     this.doors = [];
     this.pickups = [];
+    this.ready = false;
+    this.steadyFrames = 0;
     this.tutorial = [];
     this.tutorialMode = null;
     this.leaving = false;
@@ -381,7 +393,7 @@ export default class PlayScene extends Phaser.Scene {
       this.hud()?.flash(this.here.kind === 'boss' ? `${BOSS_NAME} sconfitta` : 'Stanza ripulita');
       this.openDoors(true);
       this.syncMap();
-      if (this.here.kind === 'normal') this.maybeDropEnergy();
+      if (this.here.kind === 'normal') this.rollReward();
     };
     this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? BOSS_NAME : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
@@ -403,6 +415,8 @@ export default class PlayScene extends Phaser.Scene {
       this.enemies.spawnBoss(p.x, p.y);
     }
     if (this.here.kind === 'treasure') this.addPedestal();
+    const waiting = this.run.drops?.[this.here.id];
+    if (waiting) this.placeDrop(waiting, false);
     if (this.here.kind === 'start') this.drawTutorial(this.inputMode());
     this.addDoors();
     if (this.enemies.alive === 0) this.openDoors(false);
@@ -431,6 +445,7 @@ export default class PlayScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.frameCamera, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.frameCamera, this));
     if (!this.scene.isActive('hud')) this.scene.launch('hud');
+    this.createdAt = this.time.now;
     if (this.run.from !== undefined) this.cameras.main.fadeIn(180, 0, 0, 0);
   }
 
@@ -620,6 +635,15 @@ export default class PlayScene extends Phaser.Scene {
     this.sparks.explode(16, p.icon.x, p.icon.y);
   }
 
+  /** The room is playable: drop input made while loading and let enemies start their wake-up from now. */
+  private becomeReady(time: number): void {
+    this.ready = true;
+    this.hud()?.touch.releaseAll();
+    this.shootKeys.clear();
+    this.nextShotAt = time + 150;
+    this.enemies.rewake(time);
+  }
+
   /** Stats column in the HUD: speed, fire rate, damage, range, shot speed and luck. */
   private syncStats(): void {
     const st = this.stats;
@@ -644,17 +668,53 @@ export default class PlayScene extends Phaser.Scene {
     this.shake.add(0.2);
   }
 
-  /** A cleared room may leave an energy cell in the middle (more often with luck). */
-  private maybeDropEnergy(): void {
+  /**
+   * A cleared room sometimes leaves a reward in the middle: a whole suit
+   * cell, or (rarer) an item. Luck raises both chances. The reward stays on
+   * the floor until picked up, even after leaving the room.
+   */
+  private rollReward(): void {
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
-    if (rng.next() >= energyDropChance(this.stats.luck)) return;
+    const reward = rollRoomReward(rng.next(), this.stats.luck);
+    const item = reward === 'item' ? pickItem(rng, this.run.items) : undefined;
+    const drop = item ?? (reward ? 'energy' : null);
+    if (!drop) return;
+    this.run.drops = { ...this.run.drops, [this.here.id]: drop };
+    this.placeDrop(drop, true);
+  }
+
+  /** Puts a room's reward on the floor in the middle of the room (popping in when just dropped). */
+  private placeDrop(drop: ItemId | 'energy', fresh: boolean): void {
     const centre = centreTile(this.here.shape);
-    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + (centre.col + 0.5) * TILE, ROOM_Y + (centre.row + 1) * TILE - 6, 14, 0x39d0ff, 16, 0, () => {
-      if (this.health.hp >= this.health.max) return false;
-      this.health = heal(this.health, 1);
-      this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+    const x = ROOM_X + (centre.col + 0.5) * TILE;
+    const y = ROOM_Y + (centre.row + 1) * TILE - 6;
+    const done = () => {
+      const drops = { ...this.run.drops };
+      delete drops[this.here.id];
+      this.run.drops = drops;
+      this.syncMap();
       return true;
-    });
+    };
+    if (drop === 'energy') {
+      this.addPickup(ENERGY_CELL_FRAME, x, y, 14, 0x39d0ff, 16, 0, () => {
+        if (this.health.hp >= this.health.max) return false;
+        this.health = heal(this.health, ENERGY_HEAL);
+        this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
+        return done();
+      });
+    } else {
+      this.addPickup(ITEMS[drop].frame, x, y, 18, ITEMS[drop].color, 20, 0, () => {
+        this.takeItem(drop);
+        return done();
+      });
+    }
+    if (fresh) {
+      const p = this.pickups[this.pickups.length - 1];
+      this.sparks.setEmitterAngle({ min: 0, max: 360 });
+      this.sparks.explode(14, x, y - 14);
+      p.icon.setScale(0.2);
+      this.tweens.add({ targets: p.icon, scale: 1, duration: 260, ease: 'Back.Out' });
+    }
   }
 
   /**
@@ -790,6 +850,7 @@ export default class PlayScene extends Phaser.Scene {
         cells: r.shape.cells.map(([x, y]) => ({ x: r.gx + x, y: r.gy + y })),
         kind: r.kind,
         state: r.id === this.here.id ? 'current' : visited.has(r.id) ? 'visited' : 'seen',
+        loot: r.id === this.here.id ? undefined : this.run.drops?.[r.id] === undefined ? undefined : this.run.drops[r.id] === 'energy' ? 'energy' : 'item',
         // Doors to rooms that are also on the map, as the grid cell and side they leave from.
         doors: visited.has(r.id)
           ? doorLinks(this.floor, r).map((l) => ({ x: r.gx + l.x, y: r.gy + l.y, side: l.side }))
@@ -829,6 +890,11 @@ export default class PlayScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.applyShake(delta / 1000);
+    if (!this.ready) {
+      this.steadyFrames = delta < 34 ? this.steadyFrames + 1 : 0;
+      this.player.setVelocity(0, 0);
+      if (this.steadyFrames >= 12 || time - this.createdAt > 3000) this.becomeReady(time);
+    }
     if (this.tintUntil && time >= this.tintUntil) {
       this.player.clearTint();
       this.tintUntil = 0;
@@ -836,14 +902,14 @@ export default class PlayScene extends Phaser.Scene {
     if (this.dead) {
       this.player.setVelocity(0, 0);
       if (!this.restartOffered && time - this.deadAt > 1400) this.offerRestart();
-    } else if (!this.leaving) {
+    } else if (!this.leaving && this.ready) {
       this.updateMovement(time);
       this.updateShooting(time);
       this.updateAnimation(time);
       const exit = this.exitLink();
       if (exit) this.leave(exit);
     }
-    this.enemies.update(time, delta);
+    if (this.ready) this.enemies.update(time, delta);
     this.updatePickups(time, delta / 1000);
     if (this.tutorialMode) {
       const mode = this.inputMode();

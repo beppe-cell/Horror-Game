@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Dir4, Vec2, stickToDir4, touchSide, virtualStick } from '../rules/input';
+import { Dir4, Vec2, followOrigin, stickToDir4, touchSide, virtualStick } from '../rules/input';
 
 /** Stick radius as a share of the shorter screen side. */
 const RADIUS_SHARE = 0.11;
@@ -27,8 +27,9 @@ export class TouchControls {
   private radius: number;
 
   constructor(private scene: Phaser.Scene) {
-    // Pointer 1 exists by default; one more allows moving and shooting at once.
-    scene.input.addPointer(1);
+    // Pointer 1 exists by default; three more allow moving and shooting at
+    // once even if a palm or a third finger rests on the screen.
+    scene.input.addPointer(3);
     this.radius = Math.min(scene.scale.width, scene.scale.height) * RADIUS_SHARE;
     this.move = this.makeStick(0x39d0ff);
     this.shoot = this.makeStick(0x7cf7d4);
@@ -38,12 +39,46 @@ export class TouchControls {
     input.on(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
     input.on(Phaser.Input.Events.POINTER_UP, this.onUp, this);
     input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUp, this);
+    // A finger lifted during a resize (entering fullscreen, rotating) or
+    // while the page is hidden sends no "up": release both sticks then.
+    const releaseAll = () => this.releaseAll();
+    scene.scale.on(Phaser.Scale.Events.RESIZE, releaseAll);
+    scene.game.events.on(Phaser.Core.Events.BLUR, releaseAll);
+    scene.game.events.on(Phaser.Core.Events.HIDDEN, releaseAll);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      scene.scale.off(Phaser.Scale.Events.RESIZE, releaseAll);
+      scene.game.events.off(Phaser.Core.Events.BLUR, releaseAll);
+      scene.game.events.off(Phaser.Core.Events.HIDDEN, releaseAll);
       input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
       input.off(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
       input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this);
       input.off(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUp, this);
     });
+  }
+
+  /**
+   * Called every frame: a stick whose finger is no longer down (an "up"
+   * the browser never delivered) is released, so it cannot stay stuck.
+   */
+  update(): void {
+    for (const stick of [this.move, this.shoot]) {
+      if (stick.pointerId === null) continue;
+      const pointer = this.scene.input.manager.pointers.find((p) => p.id === stick.pointerId);
+      if (!pointer || !pointer.isDown) this.release(stick);
+    }
+  }
+
+  /** Lets go of both sticks (used on load, resize and when the page is hidden). */
+  releaseAll(): void {
+    this.release(this.move);
+    this.release(this.shoot);
+  }
+
+  private release(stick: Stick): void {
+    stick.pointerId = null;
+    stick.value = { x: 0, y: 0 };
+    stick.base.setVisible(false);
+    stick.knob.setVisible(false);
   }
 
   /** Movement vector, length 0 to 1. */
@@ -89,16 +124,15 @@ export class TouchControls {
   private onMove(pointer: Phaser.Input.Pointer): void {
     const stick = this.stickFor(pointer);
     if (!stick) return;
-    stick.value = virtualStick(stick.origin, { x: pointer.x, y: pointer.y }, this.radius);
+    const finger = { x: pointer.x, y: pointer.y };
+    stick.origin = followOrigin(stick.origin, finger, this.radius);
+    stick.base.setPosition(stick.origin.x, stick.origin.y);
+    stick.value = virtualStick(stick.origin, finger, this.radius);
     stick.knob.setPosition(stick.origin.x + stick.value.x * this.radius, stick.origin.y + stick.value.y * this.radius);
   }
 
   private onUp(pointer: Phaser.Input.Pointer): void {
     const stick = this.stickFor(pointer);
-    if (!stick) return;
-    stick.pointerId = null;
-    stick.value = { x: 0, y: 0 };
-    stick.base.setVisible(false);
-    stick.knob.setVisible(false);
+    if (stick) this.release(stick);
   }
 }
