@@ -186,36 +186,33 @@ export function paintFloor(scene: Phaser.Scene, key: string, b: Biome, cols: num
 }
 
 /**
- * Paints the 2-tile wall ring. Every side shows a wall face turned towards
- * the room (the top wall upright, the others rotated), with solid rock
- * behind. Top doors use the closed-door tile; side and bottom doors are
+ * Paints the walls around a room of any shape. `open` says which interior
+ * tiles are floor; every edge between floor and wall gets a wall face turned
+ * towards the room (the top wall upright, the others rotated), with solid
+ * rock behind. Top doors use the closed-door tile; side and bottom doors are
  * painted open, and their hatches are separate images (hatchKey).
  */
 export function paintWalls(
   scene: Phaser.Scene,
   key: string,
   b: Biome,
-  cols: number,
-  rows: number,
-  doors: readonly { col: number; row: number }[],
+  open: readonly (readonly boolean[])[],
+  doors: readonly { col: number; row: number; side: 'up' | 'down' | 'left' | 'right' }[],
   rng: Rng,
 ): void {
   if (scene.textures.exists(key)) scene.textures.remove(key);
   const k = WALL_TILES;
+  const rows = open.length;
+  const cols = open[0].length;
   const w = (cols + 2 * k) * TILE;
   const h = (rows + 2 * k) * TILE;
-  const isDoor = (side: 'top' | 'bottom' | 'left' | 'right', i: number) =>
-    doors.some((d) =>
-      side === 'top' ? d.row === 0 && d.col === i :
-      side === 'bottom' ? d.row === rows - 1 && d.col === i :
-      side === 'left' ? d.col === 0 && d.row === i :
-      d.col === cols - 1 && d.row === i,
-    );
+  const floor = (c: number, r: number) => r >= 0 && c >= 0 && r < rows && c < cols && open[r][c];
+  const door = (c: number, r: number, side: string) => doors.some((d) => d.col === c && d.row === r && d.side === side);
   makeLitTexture(scene, key, w, h, (ctx) => {
-    // Solid rock fills the ring only: the room interior stays transparent.
+    // Solid rock everywhere but the floor, which stays transparent.
     ctx.fillStyle = b.rock;
     ctx.fillRect(0, 0, w, h);
-    ctx.clearRect(k * TILE, k * TILE, cols * TILE, rows * TILE);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (open[r][c]) ctx.clearRect((c + k) * TILE, (r + k) * TILE, TILE, TILE);
     // Draws a face so that its bottom edge (the part that touches the floor)
     // lies on the room border, turned by `angle`.
     const face = (img: HTMLImageElement, cx: number, cy: number, angle: number) => {
@@ -226,31 +223,37 @@ export function paintWalls(
       ctx.restore();
     };
     const wall = () => source(scene, tileKey(b, rng.pick(b.wallFaces)));
-    for (let c = 0; c < cols; c++) {
-      const x = (c + k) * TILE + TILE / 2;
-      // The top wall faces the camera: its door is the front-view door tile.
-      const top = isDoor('top', c) ? source(scene, tileKey(b, b.doorClosed)) : wall();
-      face(top, x, k * TILE - top.height / 2, 0);
-      if (isDoor('bottom', c)) {
-        sideDoor(ctx, b, (c + k) * TILE, (rows + k) * TILE, TILE, k * TILE, 'bottom', false);
-      } else {
-        const bottom = wall();
-        face(bottom, x, (rows + k) * TILE + bottom.height / 2, Math.PI);
-      }
-    }
     for (let r = 0; r < rows; r++) {
-      const y = (r + k) * TILE + TILE / 2;
-      if (isDoor('left', r)) {
-        sideDoor(ctx, b, 0, (r + k) * TILE, k * TILE, TILE, 'left', false);
-      } else {
-        const left = wall();
-        face(left, k * TILE - left.height / 2, y, -Math.PI / 2);
-      }
-      if (isDoor('right', r)) {
-        sideDoor(ctx, b, (cols + k) * TILE, (r + k) * TILE, k * TILE, TILE, 'right', false);
-      } else {
-        const right = wall();
-        face(right, (cols + k) * TILE + right.height / 2, y, Math.PI / 2);
+      for (let c = 0; c < cols; c++) {
+        if (!open[r][c]) continue;
+        const x0 = (c + k) * TILE;
+        const y0 = (r + k) * TILE;
+        if (!floor(c, r - 1)) {
+          // The top wall faces the camera: its door is the front-view door tile.
+          const top = door(c, r, 'up') ? source(scene, tileKey(b, b.doorClosed)) : wall();
+          face(top, x0 + TILE / 2, y0 - top.height / 2, 0);
+        }
+        if (!floor(c, r + 1)) {
+          if (door(c, r, 'down')) sideDoor(ctx, b, x0, y0 + TILE, TILE, k * TILE, 'bottom', false);
+          else {
+            const img = wall();
+            face(img, x0 + TILE / 2, y0 + TILE + img.height / 2, Math.PI);
+          }
+        }
+        if (!floor(c - 1, r)) {
+          if (door(c, r, 'left')) sideDoor(ctx, b, x0 - k * TILE, y0, k * TILE, TILE, 'left', false);
+          else {
+            const img = wall();
+            face(img, x0 - img.height / 2, y0 + TILE / 2, -Math.PI / 2);
+          }
+        }
+        if (!floor(c + 1, r)) {
+          if (door(c, r, 'right')) sideDoor(ctx, b, x0 + TILE, y0, k * TILE, TILE, 'right', false);
+          else {
+            const img = wall();
+            face(img, x0 + TILE + img.height / 2, y0 + TILE / 2, Math.PI / 2);
+          }
+        }
       }
     }
   });

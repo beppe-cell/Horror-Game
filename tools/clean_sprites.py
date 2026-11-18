@@ -17,7 +17,7 @@ For each sheet it:
   5. writes a PNG sprite sheet with the same grid order plus a JSON file.
 
 Usage:
-  python3 -I tools/clean_sprites.py OUT_DIR NAME=SHEET.png [NAME=SHEET.png ...]
+  python3 -I tools/clean_sprites.py OUT_DIR NAME=SHEET.png[@px=N] [NAME=SHEET.png ...]
 """
 import json
 import sys
@@ -163,9 +163,12 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     raw = {}
-    for name, path in sheets.items():
+    for name, spec in sheets.items():
+        # SHEET.png@px=N forces the art pixel size when the estimate is off.
+        path, *opts = spec.split('@')
+        forced = next((float(o[3:]) for o in opts if o.startswith('px=')), None)
         img = np.asarray(Image.open(path).convert('RGB')).astype(np.float32)
-        s = estimate_pixel_size(img)
+        s = forced or estimate_pixel_size(img)
         cw, ch = img.shape[1] / COLS, img.shape[0] / ROWS
         frames = []
         for r in range(ROWS):

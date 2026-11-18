@@ -3,16 +3,20 @@ import { TouchControls } from './TouchControls';
 
 /** Size of one suit-cell icon in screen pixels. */
 const CELL = 22;
-/** Size of one minimap room in screen pixels, and the gap between rooms. */
-const MAP_W = 16;
-const MAP_H = 11;
-const MAP_GAP = 3;
+/** Size of one minimap grid cell in screen pixels, and the gap between cells. */
+const MAP_W = 14;
+const MAP_H = 9;
+const MAP_GAP = 4;
+/** Padding of the minimap panel. */
+const MAP_PAD = 7;
 
 export interface MapRoom {
-  gx: number;
-  gy: number;
+  /** Grid cells the room covers. */
+  cells: { x: number; y: number }[];
   kind: 'start' | 'normal' | 'treasure' | 'boss';
   state: 'current' | 'visited' | 'seen';
+  /** Doors of the room, drawn as short links across the gaps. */
+  doors: { x: number; y: number; side: 'up' | 'down' | 'left' | 'right' }[];
 }
 
 /**
@@ -101,27 +105,68 @@ export default class HudScene extends Phaser.Scene {
     this.drawMap();
   }
 
+  /**
+   * Minimap in the top-right corner, on a dark glass panel: rooms as soft
+   * blocks (joined cells merge into one shape), short links for the doors,
+   * the current room bright, visited rooms grey, rooms only seen as faint
+   * ghosts. The boss lair has a red eye, the treasure room a gold diamond.
+   */
   private drawMap(): void {
     const g = this.map;
     if (!g) return;
     g.clear();
     const rooms = this.mapRooms;
     if (!rooms.length) return;
-    const minX = Math.min(...rooms.map((r) => r.gx));
-    const maxX = Math.max(...rooms.map((r) => r.gx));
-    const minY = Math.min(...rooms.map((r) => r.gy));
+    const all = rooms.flatMap((r) => r.cells);
+    const minX = Math.min(...all.map((c) => c.x));
+    const maxX = Math.max(...all.map((c) => c.x));
+    const minY = Math.min(...all.map((c) => c.y));
+    const maxY = Math.max(...all.map((c) => c.y));
     const stepX = MAP_W + MAP_GAP;
     const stepY = MAP_H + MAP_GAP;
-    const left = this.scale.width - 14 - (maxX - minX + 1) * stepX + MAP_GAP;
-    const top = 14;
+    const panelW = (maxX - minX + 1) * stepX - MAP_GAP + 2 * MAP_PAD;
+    const panelH = (maxY - minY + 1) * stepY - MAP_GAP + 2 * MAP_PAD;
+    const left = this.scale.width - 12 - panelW;
+    const top = 12;
+    g.fillStyle(0x07090f, 0.55).fillRoundedRect(left, top, panelW, panelH, 6);
+    g.lineStyle(1, 0x2a3346, 0.9).strokeRoundedRect(left + 0.5, top + 0.5, panelW - 1, panelH - 1, 6);
+    const px = (x: number) => left + MAP_PAD + (x - minX) * stepX;
+    const py = (y: number) => top + MAP_PAD + (y - minY) * stepY;
+
+    // Door links first, under the rooms.
+    g.fillStyle(0x6f7a8f, 0.9);
     for (const r of rooms) {
-      const x = left + (r.gx - minX) * stepX;
-      const y = top + (r.gy - minY) * stepY;
-      const fill = r.state === 'current' ? 0xe8eef7 : r.state === 'visited' ? 0x5a6478 : 0x1a2030;
-      g.fillStyle(0x0b0d14, 0.85).fillRect(x - 1, y - 1, MAP_W + 2, MAP_H + 2);
-      g.fillStyle(fill, 0.95).fillRect(x, y, MAP_W, MAP_H);
-      const icon = r.kind === 'boss' ? 0xff4d4d : r.kind === 'treasure' ? 0xffd34d : undefined;
-      if (icon !== undefined) g.fillStyle(icon, 1).fillRect(x + MAP_W / 2 - 2, y + MAP_H / 2 - 2, 4, 4);
+      for (const d of r.doors) {
+        const x = px(d.x);
+        const y = py(d.y);
+        if (d.side === 'up') g.fillRect(x + MAP_W / 2 - 1, y - MAP_GAP, 2, MAP_GAP);
+        if (d.side === 'down') g.fillRect(x + MAP_W / 2 - 1, y + MAP_H, 2, MAP_GAP);
+        if (d.side === 'left') g.fillRect(x - MAP_GAP, y + MAP_H / 2 - 1, MAP_GAP, 2);
+        if (d.side === 'right') g.fillRect(x + MAP_W, y + MAP_H / 2 - 1, MAP_GAP, 2);
+      }
+    }
+
+    for (const r of rooms) {
+      const [color, alpha] = r.state === 'current' ? [0xdfe8f5, 1] : r.state === 'visited' ? [0x4a5670, 1] : [0x4a5670, 0.35];
+      g.fillStyle(color, alpha);
+      const has = (x: number, y: number) => r.cells.some((c) => c.x === x && c.y === y);
+      for (const c of r.cells) {
+        g.fillRoundedRect(px(c.x), py(c.y), MAP_W, MAP_H, 2);
+        // Fill the gap towards the next cell of the same room, so they merge.
+        if (has(c.x + 1, c.y)) g.fillRect(px(c.x) + MAP_W - 2, py(c.y), MAP_GAP + 4, MAP_H);
+        if (has(c.x, c.y + 1)) g.fillRect(px(c.x), py(c.y) + MAP_H - 2, MAP_W, MAP_GAP + 4);
+      }
+      // Icon in the middle of the room's first cell.
+      const cx = px(r.cells[0].x) + MAP_W / 2;
+      const cy = py(r.cells[0].y) + MAP_H / 2;
+      if (r.kind === 'boss') {
+        g.fillStyle(0xff4d5a, 1).fillCircle(cx, cy, 3);
+        g.fillStyle(0x0b0d14, 1).fillRect(cx - 0.5, cy - 2, 1, 4);
+      } else if (r.kind === 'treasure') {
+        g.fillStyle(0xffd34d, 1);
+        g.fillTriangle(cx, cy - 3.5, cx + 3, cy, cx - 3, cy);
+        g.fillTriangle(cx, cy + 3.5, cx + 3, cy, cx - 3, cy);
+      }
     }
   }
 

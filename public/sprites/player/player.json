@@ -4,48 +4,48 @@
   "columns": 6,
   "rows": 3,
   "palette": [
-    "#de823f",
-    "#921a34",
-    "#626c7b",
-    "#1e3142",
-    "#060b17",
-    "#e3e2cf",
-    "#1b849b",
-    "#d7e3ee",
-    "#260329",
-    "#4d3f3b",
-    "#8bf4f9",
-    "#0c1321",
-    "#afb7ba",
-    "#505964",
-    "#100319",
-    "#384556",
-    "#23acc3",
-    "#8893a2",
-    "#06050f",
-    "#31dcf0",
-    "#dd2162",
-    "#180322"
+    "#c3cdd0",
+    "#0d0f1b",
+    "#70ebb1",
+    "#65676f",
+    "#8e9291",
+    "#434652",
+    "#dcdabe",
+    "#21062c",
+    "#1d202c",
+    "#7a7d7d",
+    "#29664c",
+    "#d52653",
+    "#c1bca6",
+    "#a2a5a1",
+    "#adb4bc",
+    "#3d9668",
+    "#fefbfb",
+    "#30143d",
+    "#d2e3e3",
+    "#313640",
+    "#565660",
+    "#50cc88"
   ],
   "sheets": {
     "reference": {
-      "pixelSize": 5.75,
+      "pixelSize": 5.6,
       "emptyFrames": []
     },
     "idle": {
-      "pixelSize": 5.75,
+      "pixelSize": 5.6,
       "emptyFrames": []
     },
     "walk": {
-      "pixelSize": 5.75,
+      "pixelSize": 5.6,
       "emptyFrames": []
     },
     "shoot": {
-      "pixelSize": 5.75,
+      "pixelSize": 5.6,
       "emptyFrames": []
     },
     "hurt-death": {
-      "pixelSize": 5.75,
+      "pixelSize": 5.6,
       "emptyFrames": [
         9,
         10,

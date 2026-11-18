@@ -245,13 +245,13 @@ export class EnemyManager {
     this.boss = { sprite, state: newBoss(scene.time.now), hp: BOSS_HP, flashUntil: 0, nextDirt: 0 };
   }
 
-  /** Places 3-5 enemies on free cells away from the player's start. */
-  spawn(rng: Rng, cells: { c: number; r: number }[], origin: { x: number; y: number }, toWorld: (c: number, r: number) => { x: number; y: number }): void {
+  /** Places 3-5 enemies (plus `extra` in big rooms) on free cells away from the player's start. */
+  spawn(rng: Rng, cells: { c: number; r: number }[], origin: { x: number; y: number }, toWorld: (c: number, r: number) => { x: number; y: number }, extra = 0): void {
     const far = cells.filter((cell) => {
       const p = toWorld(cell.c, cell.r);
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
-    const count = Math.min(far.length, rng.int(3, 5));
+    const count = Math.min(far.length, rng.int(3, 5) + extra);
     const total = SPAWN_WEIGHTS.reduce((s, [, w]) => s + w, 0);
     for (let i = 0; i < count; i++) {
       const cell = far.splice(rng.int(0, far.length - 1), 1)[0];
