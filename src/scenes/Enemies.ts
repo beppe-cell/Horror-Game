@@ -276,6 +276,13 @@ export class EnemyManager {
     if (this.boss && this.boss.state.phase === 'wake') this.boss.state = { ...this.boss.state, until: now + BOSS_WAKE_MS };
   }
 
+  /** Where the enemies that can be hit stand (feet), for homing bolts. */
+  targets(): { x: number; y: number }[] {
+    const list = this.enemies.filter((e) => !e.hidden).map((e) => ({ x: e.sprite.x, y: e.sprite.y }));
+    if (this.boss?.sprite.visible) list.push({ x: this.boss.sprite.x, y: this.boss.sprite.y });
+    return list;
+  }
+
   get alive(): number {
     return this.enemies.length + (this.boss ? 1 : 0);
   }
