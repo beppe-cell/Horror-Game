@@ -238,8 +238,13 @@ export default class HudScene extends Phaser.Scene {
     });
   }
 
+  private nextDebugAt = 0;
+
+  /** Debug line, redrawn at most twice a second: a text redraw every frame costs a lot on phones. */
   setDebug(text: string): void {
-    this.debugText?.setText(text);
+    if (!this.debugText || this.time.now < this.nextDebugAt) return;
+    this.nextDebugAt = this.time.now + 500;
+    this.debugText.setText(text);
   }
 
   /**

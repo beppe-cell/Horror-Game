@@ -42,6 +42,13 @@ export class TouchControls {
     // A finger lifted during a resize (entering fullscreen, rotating) or
     // while the page is hidden sends no "up": release both sticks then.
     const releaseAll = () => this.releaseAll();
+    // Safety net straight from the browser: when no finger is left on the
+    // screen, nothing can still be held, whatever events went missing.
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) this.releaseAll();
+    };
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
     scene.scale.on(Phaser.Scale.Events.RESIZE, releaseAll);
     scene.game.events.on(Phaser.Core.Events.BLUR, releaseAll);
     scene.game.events.on(Phaser.Core.Events.HIDDEN, releaseAll);
@@ -49,6 +56,8 @@ export class TouchControls {
       scene.scale.off(Phaser.Scale.Events.RESIZE, releaseAll);
       scene.game.events.off(Phaser.Core.Events.BLUR, releaseAll);
       scene.game.events.off(Phaser.Core.Events.HIDDEN, releaseAll);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
       input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
       input.off(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
       input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this);
@@ -113,7 +122,8 @@ export class TouchControls {
       s.knob.setRadius(this.radius * 0.42);
     }
     const stick = touchSide(pointer.x, this.scene.scale.width) === 'move' ? this.move : this.shoot;
-    if (stick.pointerId !== null) return; // that side already has a finger
+    // A new finger on a side always takes it over: if the old finger's "up"
+    // was lost, the side would otherwise stay locked and ignore every touch.
     stick.pointerId = pointer.id;
     stick.origin = { x: pointer.x, y: pointer.y };
     stick.value = { x: 0, y: 0 };
