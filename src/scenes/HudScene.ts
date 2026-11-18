@@ -12,17 +12,19 @@ const MAP_PAD = 6;
 
 /** One line of the stats column: which icon to draw and the value shown. */
 export interface StatLine {
-  icon: 'speed' | 'rate' | 'damage' | 'range' | 'shotSpeed' | 'luck';
+  icon: 'coin' | 'speed' | 'rate' | 'damage' | 'range' | 'shotSpeed' | 'luck';
   value: number;
+  /** Shown as a whole number (coins), not with two decimals. */
+  whole?: boolean;
 }
 
 export interface MapRoom {
   /** Grid cells the room covers. */
   cells: { x: number; y: number }[];
-  kind: 'start' | 'normal' | 'treasure' | 'boss';
+  kind: 'start' | 'normal' | 'treasure' | 'boss' | 'shop';
   state: 'current' | 'visited' | 'seen';
   /** A reward left lying in the room: shown so the player can come back for it. */
-  loot?: 'item' | 'energy';
+  loot?: 'item' | 'energy' | 'coin';
   /** Doors of the room, drawn as short links across the gaps. */
   doors: { x: number; y: number; side: 'up' | 'down' | 'left' | 'right' }[];
 }
@@ -244,6 +246,10 @@ export default class HudScene extends Phaser.Scene {
         g.fillRect(cx - 2, cy + 1, 4, 2);
         g.fillStyle(0x0b0b0b, 1).fillRect(cx - 2, cy - 2, 1, 2).fillRect(cx + 1, cy - 2, 1, 2);
         g.fillStyle(0xc0303a, 1).fillRect(cx - 3, cy - 4, 6, 1);
+      } else if (r.kind === 'shop') {
+        // Shop: a gold coin with a dark slot.
+        g.fillStyle(0xffd34d, 1).fillCircle(cx, cy, 3.5);
+        g.fillStyle(0xb8862a, 1).fillRect(cx - 0.5, cy - 2, 1, 4);
       } else if (r.kind === 'treasure') {
         // Crown: three points over a band.
         g.fillStyle(0xffd34d, 1).fillRect(cx - 3, cy, 7, 2);
@@ -252,8 +258,11 @@ export default class HudScene extends Phaser.Scene {
       }
       if (r.loot) {
         // A reward left on the floor: next to the room's own icon if it has one, else in the middle.
-        const lx = r.kind === 'boss' || r.kind === 'treasure' ? cx + 4 : cx;
-        if (r.loot === 'energy') {
+        const lx = r.kind === 'start' || r.kind === 'normal' ? cx : cx + 4;
+        if (r.loot === 'coin') {
+          g.fillStyle(0x0b0b0b, 1).fillCircle(lx, cy, 3.5);
+          g.fillStyle(0x4dffb0, 1).fillCircle(lx, cy, 2.5);
+        } else if (r.loot === 'energy') {
           g.fillStyle(0x0b0b0b, 1).fillRect(lx - 2, cy - 3, 5, 7);
           g.fillStyle(0x39d0ff, 1).fillRect(lx - 1, cy - 2, 3, 5);
           g.fillStyle(0xffffff, 1).fillRect(lx, cy - 1, 1, 3);
@@ -345,7 +354,7 @@ export default class HudScene extends Phaser.Scene {
         t.setShadow(0, 1, '#000000', 3, true, true);
         this.statTexts[i] = t;
       }
-      t.setFontSize(Math.round(14 * k)).setText(line.value.toFixed(2)).setPosition((x + 19) * k, (y - 1) * k);
+      t.setFontSize(Math.round(14 * k)).setText(line.whole ? `${line.value}`.padStart(2, '0') : line.value.toFixed(2)).setPosition((x + 19) * k, (y - 1) * k);
     });
     // The music button sits under the stats column.
     const by = (50 + Math.max(lines.length, 6) * 19 + 4) * k;
@@ -415,6 +424,12 @@ function drawStatIcon(g: Phaser.GameObjects.Graphics, icon: StatLine['icon'], x:
   const px = (color: number, rx: number, ry: number, w = 2, h = 2) => g.fillStyle(color, 1).fillRect(x + rx, y + ry, w, h);
   g.fillStyle(0x0b0d14, 0.6).fillRect(x - 1, y - 1, 16, 16);
   switch (icon) {
+    case 'coin': // a green alien crystal coin
+      px(0x0b0d14, 4, 2, 6, 11);
+      px(0x1f8a5a, 5, 3, 4, 9);
+      px(0x4dffb0, 5, 3, 2, 6);
+      px(0xb8ffe0, 5, 4, 1, 2);
+      break;
     case 'speed': // a boot with speed lines
       px(0x7d8799, 6, 2, 4, 8);
       px(0x7d8799, 6, 9, 7, 3);

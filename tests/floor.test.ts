@@ -10,12 +10,12 @@ describe('floor layout', () => {
     expect(generateFloor(new Rng(42))).toEqual(generateFloor(new Rng(42)));
   });
 
-  it('has one start, boss and treasure room, all reachable through matching doors', () => {
+  it('has one start, boss, treasure and shop room, all reachable through matching doors', () => {
     for (let seed = 1; seed <= 200; seed++) {
       const floor = generateFloor(new Rng(seed));
       expect(floor.rooms).toHaveLength(9);
       const kinds = floor.rooms.map((r) => r.kind);
-      for (const k of ['start', 'boss', 'treasure'] as const) expect(kinds.filter((x) => x === k)).toHaveLength(1);
+      for (const k of ['start', 'boss', 'treasure', 'shop'] as const) expect(kinds.filter((x) => x === k)).toHaveLength(1);
       // No two rooms share a grid cell.
       const cells = floor.rooms.flatMap((r) => roomCells(r).map((c) => `${c.x},${c.y}`));
       expect(new Set(cells).size).toBe(cells.length);
