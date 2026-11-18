@@ -4,8 +4,8 @@ import { TouchControls } from './TouchControls';
 /** Size of one suit-cell icon in screen pixels. */
 const CELL = 22;
 /** Size of one minimap grid cell in screen pixels, and the gap between cells. */
-const MAP_W = 17;
-const MAP_H = 12;
+const MAP_W = 13;
+const MAP_H = 9;
 const MAP_GAP = 2;
 /** Padding of the minimap panel. */
 const MAP_PAD = 6;
@@ -43,6 +43,18 @@ export default class HudScene extends Phaser.Scene {
   private boss: { name: string; frac: number } | null = null;
   private statIcons!: Phaser.GameObjects.Graphics;
   private statTexts: Phaser.GameObjects.Text[] = [];
+  private lastStats: StatLine[] = [];
+  private lastHealth: { icons: number[]; shield: number } | null = null;
+
+  /**
+   * HUD scale: everything is drawn at a base size and scaled with the
+   * screen, so the cells, stats and minimap keep the same share of the view
+   * on a phone and on a big monitor.
+   */
+  private get ui(): number {
+    const { width, height } = this.scale;
+    return Math.max(1, Math.min(width, height) / 300);
+  }
 
   constructor() {
     super('hud');
@@ -84,6 +96,8 @@ export default class HudScene extends Phaser.Scene {
     this.banner.setPosition(width / 2, height * 0.18);
     this.drawMap();
     this.drawBoss();
+    if (this.lastHealth) this.setHealth(this.lastHealth.icons, this.lastHealth.shield);
+    this.setStats(this.lastStats);
   }
 
   /** Boss health bar at the bottom of the screen; null hides it. */
@@ -126,6 +140,9 @@ export default class HudScene extends Phaser.Scene {
     const g = this.map;
     if (!g) return;
     g.clear();
+    // Drawn at base size; the graphics object is scaled with the screen.
+    const k = this.ui * 0.95;
+    g.setScale(k);
     const rooms = this.mapRooms;
     if (!rooms.length) return;
     const all = rooms.flatMap((r) => r.cells);
@@ -137,7 +154,7 @@ export default class HudScene extends Phaser.Scene {
     const stepY = MAP_H + MAP_GAP;
     const panelW = Math.max(60, (maxX - minX + 1) * stepX - MAP_GAP + 2 * MAP_PAD);
     const panelH = Math.max(44, (maxY - minY + 1) * stepY - MAP_GAP + 2 * MAP_PAD);
-    const left = this.scale.width - 10 - panelW;
+    const left = this.scale.width / k - 10 - panelW;
     const top = 10;
     g.fillStyle(0x000000, 0.45).fillRect(left, top, panelW, panelH);
     g.lineStyle(1, 0xc8ccc4, 0.55).strokeRect(left + 0.5, top + 0.5, panelW - 1, panelH - 1);
@@ -184,18 +201,21 @@ export default class HudScene extends Phaser.Scene {
   setStats(lines: StatLine[]): void {
     const g = this.statIcons;
     if (!g) return;
+    this.lastStats = lines;
     g.clear();
-    const x = 16;
+    const k = this.ui * 0.75;
+    g.setScale(k);
+    const x = 14;
     lines.forEach((line, i) => {
-      const y = 56 + i * 23;
+      const y = 50 + i * 19;
       drawStatIcon(g, line.icon, x, y);
       let t = this.statTexts[i];
       if (!t) {
-        t = this.add.text(0, 0, '', { fontFamily: 'monospace', fontSize: '15px', color: '#c8ccc4' }).setDepth(100);
+        t = this.add.text(0, 0, '', { fontFamily: 'monospace', color: '#c8ccc4' }).setDepth(100);
         t.setShadow(0, 1, '#000000', 3, true, true);
         this.statTexts[i] = t;
       }
-      t.setText(line.value.toFixed(2)).setPosition(x + 20, y - 1);
+      t.setFontSize(Math.round(14 * k)).setText(line.value.toFixed(2)).setPosition((x + 19) * k, (y - 1) * k);
     });
   }
 
@@ -210,7 +230,9 @@ export default class HudScene extends Phaser.Scene {
   setHealth(icons: number[], shield: number): void {
     const g = this.cells;
     if (!g) return;
+    this.lastHealth = { icons, shield };
     g.clear();
+    g.setScale(this.ui * 0.6);
     const draw = (i: number, fill: number, color: number, light: number) => {
       const x = 14 + i * (CELL + 6);
       const y = 14;
