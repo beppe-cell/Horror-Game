@@ -76,9 +76,9 @@ try {
     // Walk through a door of the start room (always open: it has no enemies).
     const door = await page.evaluate(() => {
       const s = window.game.scene.getScene('play');
-      const side = ['up', 'down', 'left', 'right'].find((d) => s.floor && s.doors.some((x) => x.side === d));
-      s.leave(side);
-      return side;
+      const link = s.links[0];
+      s.leave(link);
+      return link.side;
     });
     await page.waitForFunction(() => window.game.scene.getScene('play')?.run?.room > 0, null, { timeout: 10000 });
     await page.waitForTimeout(500);
@@ -87,14 +87,14 @@ try {
       return { room: s.run.room, from: s.run.from, visited: s.run.visited.length, seed: s.seed };
     });
     await page.screenshot({ path: 'smoke-next-room.png' });
-    if (moved.seed !== 'SMOKETST' || moved.visited !== 2 || !moved.from) errors.push(`[desktop] room change failed via ${door}: ${JSON.stringify(moved)}`);
+    if (moved.seed !== 'SMOKETST' || moved.visited !== 2 || moved.from !== 0) errors.push(`[desktop] room change failed via ${door}: ${JSON.stringify(moved)}`);
 
     // Jump to a room of the given kind, entering from below.
     const goTo = async (kind) => {
       await page.evaluate((k) => {
         const s = window.game.scene.getScene('play');
         const room = s.floor.rooms.find((r) => r.kind === k);
-        s.scene.restart({ quality: s.quality, shake: 0, run: { ...s.run, room: room.id, from: 'down' } });
+        s.scene.restart({ quality: s.quality, shake: 0, run: { ...s.run, room: room.id, from: undefined } });
       }, kind);
       await page.waitForFunction((k) => window.game.scene.getScene('play')?.here?.kind === k && window.game.scene.getScene('play').player, kind, { timeout: 10000 });
       await page.waitForTimeout(800);

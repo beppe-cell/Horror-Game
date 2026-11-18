@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
 import { BASE_STATS, Stats, computeStats, fireCooldownMs } from '../rules/stats';
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
-import { ROOM_COLS, ROOM_ROWS, RoomLayout, generateRoom } from '../rules/room';
-import { FloorLayout, FloorRoom, OPPOSITE, SIDE_DOOR, Side, doorSides, generateFloor, neighbour } from '../rules/floor';
+import { RoomLayout, centreTile, doorTile, generateRoom, interiorSize } from '../rules/room';
+import { DoorLink, FloorLayout, FloorRoom, doorLinks, generateFloor } from '../rules/floor';
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
 import { PLAYER_HEIGHT, ShadowLight, castShadows } from '../rules/shadow';
@@ -25,16 +25,14 @@ import type HudScene from './HudScene';
 /** Suit integrity at the start of a run, in cells. */
 const START_CELLS = 3;
 
-const ROOM_W = ROOM_COLS * TILE;
-const ROOM_H = ROOM_ROWS * TILE;
 /** Wall thickness in world pixels. */
 const WALL = WALL_TILES * TILE;
 /** Room interior starts one wall thickness in from the world origin. */
 const ROOM_X = WALL;
 const ROOM_Y = WALL;
-/** Room plus its wall ring. */
-const FRAME_W = ROOM_W + WALL * 2;
-const FRAME_H = ROOM_H + WALL * 2;
+/** Interior of a single-cell room, in world pixels: the camera zoom is set for it. */
+const CELL_W = 13 * TILE;
+const CELL_H = 7 * TILE;
 
 /** Share of the player's velocity added to a new shot. */
 const SHOT_INHERIT = 0.3;
@@ -91,8 +89,8 @@ export interface RunState {
   seed: string;
   /** Id of the room the player is in. */
   room: number;
-  /** Side of this room the player came in through. */
-  from?: Side;
+  /** Room the player came from, through the door that leads back to it. */
+  from?: number;
   health: Health;
   /** Rooms whose enemies are all dead. */
   cleared: number[];
@@ -177,6 +175,8 @@ export default class PlayScene extends Phaser.Scene {
   private shakeStrength = 1;
   /** Where the camera looks before shake (landscape: the room centre). */
   private cameraBase = { x: 0, y: 0 };
+  /** True when the camera scrolls with the player (portrait, or a room bigger than the screen). */
+  private cameraFollows = false;
   /** Astronaut, rocks and crystals, with their shadows. */
   private casters: ShadowCaster[] = [];
   /** Objects mirrored in the water (player first, then rocks and crystals). */
@@ -186,7 +186,14 @@ export default class PlayScene extends Phaser.Scene {
   floor!: FloorLayout;
   here!: FloorRoom;
   /** Doors of this room: the closed-door image and the blocker that stops the player. */
-  private doors: { side: Side; image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite; blocker?: Phaser.GameObjects.Zone }[] = [];
+  private doors: { link: DoorLink; image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite; blocker?: Phaser.GameObjects.Zone }[] = [];
+  /** Doors of this room and where they lead. */
+  private links: DoorLink[] = [];
+  /** Room interior (bounding box) and room plus walls, in world pixels. */
+  roomW = CELL_W;
+  roomH = CELL_H;
+  frameW = CELL_W + 2 * WALL;
+  frameH = CELL_H + 2 * WALL;
   private leaving = false;
   private pickups: Pickup[] = [];
   dead = false;
@@ -251,28 +258,37 @@ export default class PlayScene extends Phaser.Scene {
     this.floor = generateFloor(new Rng(seedFromString(this.seed)));
     this.here = this.floor.rooms[this.run.room];
     if (!this.run.visited.includes(this.here.id)) this.run.visited.push(this.here.id);
-    const sides = doorSides(this.floor, this.here);
+    this.links = doorLinks(this.floor, this.here);
+    const shape = this.here.shape;
+    const size = interiorSize(shape);
+    this.roomW = size.cols * TILE;
+    this.roomH = size.rows * TILE;
+    this.frameW = this.roomW + 2 * WALL;
+    this.frameH = this.roomH + 2 * WALL;
+    const area = shape.cells.length;
     // Each room has its own seed, so walking back into it rebuilds the same room.
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}`));
     // At most MAX_PROPS objects per room: a few obstacles, 1-2 glowing crystals, up to two small props.
     // The boss needs room to move: no obstacles in her lair.
-    const rockCount = this.here.kind === 'boss' ? 0 : rng.int(2, 3);
-    this.room = generateRoom(rng, sides.map((side) => SIDE_DOOR[side]), { rockCount, waterPools: rng.int(1, 2), poolSize: 12 });
+    const rockCount = this.here.kind === 'boss' ? 0 : rng.int(2, 3) * area;
+    const doorTiles = this.links.map((l) => doorTile(l.x, l.y, l.side));
+    this.room = generateRoom(rng, doorTiles, { rockCount, waterPools: rng.int(1, 2) * area, poolSize: 12, shape });
 
     makePlaceholderArt(this);
     attachNormalMap(this, ITEMS_KEY);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
-    paintFloor(this, 'room-floor', CRASH_SITE, ROOM_COLS, ROOM_ROWS, new Rng(rng.int(0, 1e9)));
-    paintWalls(this, 'room-walls', CRASH_SITE, ROOM_COLS, ROOM_ROWS, this.room.doors, new Rng(rng.int(0, 1e9)));
+    paintFloor(this, 'room-floor', CRASH_SITE, size.cols, size.rows, new Rng(rng.int(0, 1e9)));
+    const open = this.room.cells.map((row) => row.map((c) => c !== 'void'));
+    paintWalls(this, 'room-walls', CRASH_SITE, open, this.links.map((l, i) => ({ ...doorTiles[i], side: l.side })), new Rng(rng.int(0, 1e9)));
 
     this.lights.enable().setAmbientColor(0x343a4c);
 
     // Cave rock around the room fills whatever spare screen space there is.
-    const cave = this.add.tileSprite(FRAME_W / 2, FRAME_H / 2, FRAME_W * 8, FRAME_H * 8, 'px-cave');
+    const cave = this.add.tileSprite(this.frameW / 2, this.frameH / 2, this.frameW * 8, this.frameH * 8, 'px-cave');
     cave.setLighting(true).setDepth(-20);
     this.add.image(ROOM_X, ROOM_Y, 'room-floor').setOrigin(0).setLighting(true).setDepth(-10);
-    this.water = new Water(this, this.room.cells, 'room-floor', ROOM_X, ROOM_Y, ROOM_W, ROOM_H, high);
+    this.water = new Water(this, this.room.cells, 'room-floor', ROOM_X, ROOM_Y, this.roomW, this.roomH, high);
     this.water.shader?.setDepth(-9);
     this.add.image(0, 0, 'room-walls').setOrigin(0).setLighting(true).setDepth(1);
     this.propEffects = new PropEffects(this, high);
@@ -343,7 +359,7 @@ export default class PlayScene extends Phaser.Scene {
         this.retireShot(shot);
       },
       pierce: () => hasEffect(this.run.items, 'pierce'),
-      bounds: { x: ROOM_X, y: ROOM_Y, w: ROOM_W, h: ROOM_H },
+      bounds: { x: ROOM_X, y: ROOM_Y, w: this.roomW, h: this.roomH },
       hurtPlayer: (amount, fromX, fromY) => this.hurtPlayer(amount, fromX, fromY),
       track: (obj, baseRow, height, width) => {
         this.reflectors.push({ obj, baseRow });
@@ -364,26 +380,30 @@ export default class PlayScene extends Phaser.Scene {
     this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? BOSS_NAME : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
     const fights = !this.run.cleared.includes(this.here.id);
+    const cellBase = (c: number, r: number) => ({ x: ROOM_X + c * TILE + TILE / 2, y: ROOM_Y + (r + 1) * TILE - 4 });
     if (fights && this.here.kind === 'normal') {
-      this.enemies.spawn(enemyRng, this.spawnCells, this.playerFeet(), (c, r) => ({
-        x: ROOM_X + c * TILE + TILE / 2,
-        y: ROOM_Y + (r + 1) * TILE - 4,
-      }));
+      // Bigger rooms hold more enemies.
+      this.enemies.spawn(enemyRng, this.spawnCells, this.playerFeet(), cellBase, (area - 1) * 2);
     } else if (fights && this.here.kind === 'boss') {
-      // She waits on the far side of the room from the door.
-      const away = { up: [0, 2], down: [0, -2], left: [4, 0], right: [-4, 0] }[this.run.from ?? 'up'];
-      this.enemies.spawnBoss(ROOM_X + (6.5 + away[0]) * TILE, ROOM_Y + (4 + away[1]) * TILE - 4);
+      // She waits on the free floor farthest from the door the player came in by.
+      const feet = this.playerFeet();
+      const far = this.spawnCells
+        .map((cell) => ({ cell, d: Math.hypot(cellBase(cell.c, cell.r).x - feet.x, cellBase(cell.c, cell.r).y - feet.y) }))
+        .filter(({ cell }) => cell.c > 1 && cell.r > 0 && cell.c < size.cols - 2)
+        .sort((a, b) => b.d - a.d)[0]?.cell ?? { c: 6, r: 3 };
+      const p = cellBase(far.c, far.r);
+      this.enemies.spawnBoss(p.x, p.y);
     }
     if (this.here.kind === 'treasure') this.addPedestal();
-    this.addDoors(sides);
+    this.addDoors();
     if (this.enemies.alive === 0) this.openDoors(false);
 
     if (high) {
       // Dust motes drifting in the dark.
       this.add
         .particles(0, 0, 'px-spark', {
-          x: { min: ROOM_X, max: ROOM_X + ROOM_W },
-          y: { min: ROOM_Y, max: ROOM_Y + ROOM_H },
+          x: { min: ROOM_X, max: ROOM_X + this.roomW },
+          y: { min: ROOM_Y, max: ROOM_Y + this.roomH },
           lifespan: 6000,
           speedX: { min: -4, max: 4 },
           speedY: { min: -6, max: -1 },
@@ -393,7 +413,7 @@ export default class PlayScene extends Phaser.Scene {
           blendMode: Phaser.BlendModes.ADD,
         })
         .setDepth(15);
-      addFog(this, ROOM_X, ROOM_Y, ROOM_W, ROOM_H).setDepth(30);
+      addFog(this, ROOM_X, ROOM_Y, this.roomW, this.roomH).setDepth(30);
       Phaser.Actions.AddEffectBloom(this.cameras.main, { threshold: 0.78, blurRadius: 2, blendAmount: 0.7 });
     }
 
@@ -402,13 +422,14 @@ export default class PlayScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.frameCamera, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.frameCamera, this));
     if (!this.scene.isActive('hud')) this.scene.launch('hud');
-    if (this.run.from) this.cameras.main.fadeIn(180, 0, 0, 0);
+    if (this.run.from !== undefined) this.cameras.main.fadeIn(180, 0, 0, 0);
   }
 
   /** Treasure room: an alien pedestal in the middle, with an item floating over it until taken. */
   private addPedestal(): void {
-    const x = ROOM_X + 6.5 * TILE;
-    const baseY = ROOM_Y + 4 * TILE - 4;
+    const centre = centreTile(this.here.shape);
+    const x = ROOM_X + (centre.col + 0.5) * TILE;
+    const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
     const pedestal = this.physics.add.staticImage(x, baseY, ITEMS_KEY, PEDESTAL_FRAME);
     pedestal.setOrigin(0.5, (PEDESTAL_BASE_ROW + 1) / pedestal.height).setLighting(true).setDepth(depthAt(baseY));
     const body = pedestal.body as Phaser.Physics.Arcade.StaticBody;
@@ -452,8 +473,9 @@ export default class PlayScene extends Phaser.Scene {
   private blockedAt(x: number, y: number): boolean {
     const c = Math.floor((x - ROOM_X) / TILE);
     const r = Math.floor((y - ROOM_Y) / TILE);
-    if (x < ROOM_X + 6 || x > ROOM_X + ROOM_W - 6 || y < ROOM_Y + 8 || y > ROOM_Y + ROOM_H - 2) return true;
-    return this.room.cells[r]?.[c] === 'rock';
+    if (x < ROOM_X + 6 || x > ROOM_X + this.roomW - 6 || y < ROOM_Y + 8 || y > ROOM_Y + this.roomH - 2) return true;
+    const cell = this.room.cells[r]?.[c];
+    return cell === 'rock' || cell === 'void';
   }
 
   /**
@@ -511,7 +533,8 @@ export default class PlayScene extends Phaser.Scene {
   private maybeDropEnergy(): void {
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
     if (rng.next() >= energyDropChance(this.stats.luck)) return;
-    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + 6.5 * TILE, ROOM_Y + 4 * TILE - 6, 14, 0x39d0ff, 16, 0, () => {
+    const centre = centreTile(this.here.shape);
+    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + (centre.col + 0.5) * TILE, ROOM_Y + (centre.row + 1) * TILE - 6, 14, 0x39d0ff, 16, 0, () => {
       if (this.health.hp >= this.health.max) return false;
       this.health = heal(this.health, 1);
       this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
@@ -547,41 +570,46 @@ export default class PlayScene extends Phaser.Scene {
     return true;
   }
 
-  /** Where the player stands on arrival: just inside the door they came through, or the centre. */
-  private entryPoint(from?: Side): { x: number; y: number } {
-    const door = from ? SIDE_DOOR[from] : { col: Math.floor(ROOM_COLS / 2), row: Math.floor(ROOM_ROWS / 2) };
-    const inward = { up: [0, 1], down: [0, -1], left: [1, 0], right: [-1, 0] }[from ?? 'up'];
-    const c = door.col + (from ? inward[0] : 0);
-    const r = door.row + (from ? inward[1] : 0);
+  /** Where the player stands on arrival: just inside the door that leads back, or the room centre. */
+  private entryPoint(from?: number): { x: number; y: number } {
+    const link = this.links.find((l) => l.to === from);
+    let tile = centreTile(this.here.shape);
+    if (link) {
+      const d = doorTile(link.x, link.y, link.side);
+      const inward = { up: [0, 1], down: [0, -1], left: [1, 0], right: [-1, 0] }[link.side];
+      tile = { col: d.col + inward[0], row: d.row + inward[1] };
+    }
     // The sprite centre sits above the boots (soles on row 46 of 48).
-    return { x: ROOM_X + c * TILE + TILE / 2, y: ROOM_Y + r * TILE + TILE / 2 - 8 };
+    return { x: ROOM_X + tile.col * TILE + TILE / 2, y: ROOM_Y + tile.row * TILE + TILE / 2 - 8 };
   }
 
-  /** Closed doors on every side that leads somewhere, each with a blocker in the opening. */
-  private addDoors(sides: Side[]): void {
-    for (const side of sides) {
-      const d = SIDE_DOOR[side];
-      const x = ROOM_X + d.col * TILE;
-      const y = ROOM_Y + d.row * TILE;
+  /** The doorway of a door, in world pixels: the gap through the wall beyond the door tile. */
+  private passage(link: DoorLink): { x: number; y: number; w: number; h: number } {
+    const d = doorTile(link.x, link.y, link.side);
+    const x = ROOM_X + d.col * TILE;
+    const y = ROOM_Y + d.row * TILE;
+    return {
+      up: { x, y: y - WALL, w: TILE, h: WALL },
+      down: { x, y: y + TILE, w: TILE, h: WALL },
+      left: { x: x - WALL, y, w: WALL, h: TILE },
+      right: { x: x + TILE, y, w: WALL, h: TILE },
+    }[link.side];
+  }
+
+  /** Closed doors on every wall that leads somewhere, each with a blocker in the opening. */
+  private addDoors(): void {
+    for (const link of this.links) {
+      const g = this.passage(link);
       let image: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite;
-      let block: [number, number, number, number];
-      if (side === 'up') {
-        image = this.add.sprite(x + TILE / 2, ROOM_Y, doorAnimKey(CRASH_SITE), 0).setOrigin(0.5, 1);
-        block = [x, ROOM_Y - WALL, TILE, WALL];
-      } else if (side === 'down') {
-        image = this.add.image(x, ROOM_Y + ROOM_H, hatchKey(CRASH_SITE, 'bottom')).setOrigin(0);
-        block = [x, ROOM_Y + ROOM_H, TILE, WALL];
-      } else if (side === 'left') {
-        image = this.add.image(0, y, hatchKey(CRASH_SITE, 'left')).setOrigin(0);
-        block = [0, y, WALL, TILE];
+      if (link.side === 'up') {
+        image = this.add.sprite(g.x + TILE / 2, g.y + WALL, doorAnimKey(CRASH_SITE), 0).setOrigin(0.5, 1);
       } else {
-        image = this.add.image(ROOM_X + ROOM_W, y, hatchKey(CRASH_SITE, 'right')).setOrigin(0);
-        block = [ROOM_X + ROOM_W, y, WALL, TILE];
+        image = this.add.image(g.x, g.y, hatchKey(CRASH_SITE, link.side === 'down' ? 'bottom' : link.side)).setOrigin(0);
       }
       image.setLighting(true).setDepth(1.5);
-      const blocker = this.add.zone(...block).setOrigin(0);
+      const blocker = this.add.zone(g.x, g.y, g.w, g.h).setOrigin(0);
       this.walls.add(blocker);
-      this.doors.push({ side, image, blocker });
+      this.doors.push({ link, image, blocker });
     }
   }
 
@@ -605,26 +633,34 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   /** Walks through an open door into the next room, with a short fade. */
-  leave(side: Side): void {
-    const next = neighbour(this.floor, this.here, side);
-    if (!next || this.leaving || this.dead) return;
+  leave(link: DoorLink): void {
+    if (this.leaving || this.dead) return;
     this.leaving = true;
     this.player.setVelocity(0, 0);
     this.shootKeys.clear();
-    const run: RunState = { ...this.run, room: next.id, from: OPPOSITE[side], health: this.health };
+    const run: RunState = { ...this.run, room: link.to, from: this.here.id, health: this.health };
     this.cameras.main.fadeOut(160, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
       this.scene.restart({ quality: this.quality, shake: this.shakeStrength, run }),
     );
   }
 
-  /** Side whose doorway the player has walked into, if any. */
-  private exitSide(): Side | null {
+  /** The door whose doorway the player has walked into, if any. */
+  private exitLink(): DoorLink | null {
     const f = this.playerFeet();
-    if (f.y < ROOM_Y - 4) return 'up';
-    if (f.y > ROOM_Y + ROOM_H + 12) return 'down';
-    if (f.x < ROOM_X - 8) return 'left';
-    if (f.x > ROOM_X + ROOM_W + 8) return 'right';
+    for (const door of this.doors) {
+      if (door.blocker) continue;
+      const g = this.passage(door.link);
+      // Deep enough into the doorway: past the room edge by a few pixels.
+      const depth = { up: 4, down: 12, left: 8, right: 8 }[door.link.side];
+      const inX = f.x >= g.x - 4 && f.x <= g.x + g.w + 4;
+      const inY = f.y >= g.y - 4 && f.y <= g.y + g.h + 4;
+      const s = door.link.side;
+      if (s === 'up' && inX && f.y < g.y + g.h - depth) return door.link;
+      if (s === 'down' && inX && f.y > g.y + depth) return door.link;
+      if (s === 'left' && inY && f.x < g.x + g.w - depth) return door.link;
+      if (s === 'right' && inY && f.x > g.x + depth) return door.link;
+    }
     return null;
   }
 
@@ -632,19 +668,18 @@ export default class PlayScene extends Phaser.Scene {
   private syncMap(): void {
     const visited = new Set(this.run.visited);
     const seen = new Set<number>();
-    for (const id of visited) {
-      const room = this.floor.rooms[id];
-      for (const side of doorSides(this.floor, room)) seen.add(neighbour(this.floor, room, side)!.id);
-    }
+    for (const id of visited) for (const l of doorLinks(this.floor, this.floor.rooms[id])) seen.add(l.to);
+    const shown = this.floor.rooms.filter((r) => visited.has(r.id) || seen.has(r.id));
     this.hud()?.setMap(
-      this.floor.rooms
-        .filter((r) => visited.has(r.id) || seen.has(r.id))
-        .map((r) => ({
-          gx: r.gx,
-          gy: r.gy,
-          kind: r.kind,
-          state: r.id === this.here.id ? 'current' : visited.has(r.id) ? 'visited' : 'seen',
-        })),
+      shown.map((r) => ({
+        cells: r.shape.cells.map(([x, y]) => ({ x: r.gx + x, y: r.gy + y })),
+        kind: r.kind,
+        state: r.id === this.here.id ? 'current' : visited.has(r.id) ? 'visited' : 'seen',
+        // Doors to rooms that are also on the map, as the grid cell and side they leave from.
+        doors: visited.has(r.id)
+          ? doorLinks(this.floor, r).map((l) => ({ x: r.gx + l.x, y: r.gy + l.y, side: l.side }))
+          : [],
+      })),
     );
   }
 
@@ -653,19 +688,23 @@ export default class PlayScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const { width, height } = this.scale;
     cam.setSize(width, height);
-    const view = frameView(width, height, ROOM_W, ROOM_H, TILE);
+    // Zoom as for a single room, so big rooms keep the same scale and scroll.
+    const view = frameView(width, height, CELL_W, CELL_H, TILE);
     cam.setZoom(view.zoom);
-    if (view.follow) {
+    this.cameraFollows = view.follow || this.roomW > CELL_W || this.roomH > CELL_H;
+    if (this.cameraFollows) {
       cam.startFollow(this.player, true, 0.12, 0.12);
       cam.setFollowOffset(0, 0);
-      // Keep the room centred vertically and stop at the side walls.
-      cam.setBounds(0, FRAME_H / 2 - height / view.zoom / 2, FRAME_W, height / view.zoom);
+      // Stop at the walls; when the room is smaller than the view on one axis, centre it.
+      const bw = Math.max(this.frameW, width / view.zoom);
+      const bh = Math.max(this.frameH, height / view.zoom);
+      cam.setBounds((this.frameW - bw) / 2, (this.frameH - bh) / 2, bw, bh);
     } else {
       cam.stopFollow();
       cam.removeBounds();
-      cam.centerOn(ROOM_X + ROOM_W / 2, ROOM_Y + ROOM_H / 2);
+      cam.centerOn(ROOM_X + this.roomW / 2, ROOM_Y + this.roomH / 2);
     }
-    this.cameraBase = { x: ROOM_X + ROOM_W / 2, y: ROOM_Y + ROOM_H / 2 };
+    this.cameraBase = { x: ROOM_X + this.roomW / 2, y: ROOM_Y + this.roomH / 2 };
   }
 
   private hud(): HudScene | undefined {
@@ -686,8 +725,8 @@ export default class PlayScene extends Phaser.Scene {
       this.updateMovement(time);
       this.updateShooting(time);
       this.updateAnimation(time);
-      const side = this.exitSide();
-      if (side) this.leave(side);
+      const exit = this.exitLink();
+      if (exit) this.leave(exit);
     }
     this.enemies.update(time, delta);
     this.updatePickups(time, delta / 1000);
@@ -696,7 +735,7 @@ export default class PlayScene extends Phaser.Scene {
       const bossFight = this.here.kind === 'boss' && this.enemies.alive > 0;
       this.hud()!.setBoss(bossFight ? BOSS_NAME : null, 1);
       this.syncMap();
-      const title = !this.run.from
+      const title = this.run.from === undefined
         ? 'Piano 1 — Sito dello schianto'
         : this.here.kind === 'treasure'
           ? 'Stanza del tesoro'
@@ -791,8 +830,8 @@ export default class PlayScene extends Phaser.Scene {
   private applyShake(dt: number): void {
     const off = this.shake.update(dt);
     const cam = this.cameras.main;
-    if (this.scale.height > this.scale.width) {
-      cam.setFollowOffset(-off.x, -off.y); // portrait: the camera follows the player
+    if (this.cameraFollows) {
+      cam.setFollowOffset(-off.x, -off.y); // the camera follows the player
     } else {
       cam.centerOn(this.cameraBase.x + off.x, this.cameraBase.y + off.y);
     }
@@ -1122,31 +1161,37 @@ export default class PlayScene extends Phaser.Scene {
       const zone = this.add.zone(x, y, w, h).setOrigin(0);
       this.walls.add(zone);
     };
-    // Wall ring, with a one-tile gap at every door (closed doors add their own blocker).
-    const has = (col: number, row: number) => this.room.doors.some((d) => d.col === col && d.row === row);
-    const doorCol = Math.floor(ROOM_COLS / 2);
-    const doorRow = Math.floor(ROOM_ROWS / 2);
-    const gapX = ROOM_X + doorCol * TILE;
-    const gapY = ROOM_Y + doorRow * TILE;
-    for (const [y, open] of [[0, has(doorCol, 0)], [FRAME_H - WALL, has(doorCol, ROOM_ROWS - 1)]] as const) {
-      if (!open) addBlock(0, y, FRAME_W, WALL);
-      else {
-        addBlock(0, y, gapX, WALL);
-        addBlock(gapX + TILE, y, FRAME_W - gapX - TILE, WALL);
-      }
+    // Every frame tile that is not floor is solid, except the doorways
+    // (closed doors add their own blocker). Runs of solid tiles in a row
+    // become one collider each.
+    const cols = this.room.cells[0].length;
+    const rows = this.room.cells.length;
+    const doorway = new Set<string>();
+    for (const link of this.links) {
+      const g = this.passage(link);
+      for (let ty = g.y / TILE; ty < (g.y + g.h) / TILE; ty++) for (let tx = g.x / TILE; tx < (g.x + g.w) / TILE; tx++) doorway.add(`${tx},${ty}`);
     }
-    for (const [x, open] of [[0, has(0, doorRow)], [FRAME_W - WALL, has(ROOM_COLS - 1, doorRow)]] as const) {
-      if (!open) addBlock(x, WALL, WALL, ROOM_H);
-      else {
-        addBlock(x, WALL, WALL, gapY - WALL);
-        addBlock(x, gapY + TILE, WALL, ROOM_H - (gapY - WALL) - TILE);
+    const solid = (tx: number, ty: number) => {
+      if (doorway.has(`${tx},${ty}`)) return false;
+      const cell = this.room.cells[ty - WALL_TILES]?.[tx - WALL_TILES];
+      return cell === undefined || cell === 'void';
+    };
+    for (let ty = 0; ty < rows + 2 * WALL_TILES; ty++) {
+      let start = -1;
+      for (let tx = 0; tx <= cols + 2 * WALL_TILES; tx++) {
+        const isSolid = tx < cols + 2 * WALL_TILES && solid(tx, ty);
+        if (isSolid && start < 0) start = tx;
+        if (!isSolid && start >= 0) {
+          addBlock(start * TILE, ty * TILE, (tx - start) * TILE, TILE);
+          start = -1;
+        }
       }
     }
 
     const edgeCells: { c: number; r: number }[] = [];
     const freeCells: { c: number; r: number }[] = [];
     const reserved = (c: number, r: number) =>
-      [...this.room.doors, { col: Math.floor(ROOM_COLS / 2), row: Math.floor(ROOM_ROWS / 2) }].some(
+      [...this.room.doors, centreTile(this.here.shape)].some(
         (d) => Math.abs(d.col - c) + Math.abs(d.row - r) <= 1,
       );
     this.room.cells.forEach((row, r) =>
@@ -1164,15 +1209,18 @@ export default class PlayScene extends Phaser.Scene {
           body.setSize(bw, bh).setOffset((prop.width - bw) / 2, prop.height - bh - 1);
         } else if (cell === 'floor' && !reserved(c, r)) {
           freeCells.push({ c, r });
-          if (r === 0 || r === ROOM_ROWS - 1 || c === 0 || c === ROOM_COLS - 1) edgeCells.push({ c, r });
+          // Next to a wall: room border or the rock of an L's missing corner.
+          const open = (cc: number, rr: number) => this.room.cells[rr]?.[cc] !== undefined && this.room.cells[rr][cc] !== 'void';
+          if (!open(c, r - 1) || !open(c, r + 1) || !open(c - 1, r) || !open(c + 1, r)) edgeCells.push({ c, r });
         }
       }),
     );
 
     // Small walkable props scattered on free floor (some give off light).
     const obstacles = this.room.cells.flat().filter((c) => c === 'rock').length;
-    const crystals = Math.min(rng.int(1, 2), MAX_PROPS - obstacles);
-    const decor = Math.max(0, Math.min(2, MAX_PROPS - obstacles - crystals));
+    const maxProps = MAX_PROPS * this.here.shape.cells.length;
+    const crystals = Math.min(rng.int(1, 2) * this.here.shape.cells.length, maxProps - obstacles);
+    const decor = Math.max(0, Math.min(2 * this.here.shape.cells.length, maxProps - obstacles - crystals));
     for (let i = 0; i < decor && freeCells.length; i++) {
       const spot = freeCells.splice(rng.int(0, freeCells.length - 1), 1)[0];
       // Half of the small props are ones that glow (flares, broken visors…).
