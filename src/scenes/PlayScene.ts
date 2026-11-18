@@ -304,6 +304,8 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // The menu has already loaded everything.
+    if (this.registry.get('assetsLoaded')) return;
     preloadPlayer(this);
     for (const b of BIOMES) preloadBiome(this, b);
     preloadEnemies(this);
@@ -317,10 +319,7 @@ export default class PlayScene extends Phaser.Scene {
    */
   private addTrapdoor(fresh: boolean): void {
     const floorNo = this.run.floor ?? 1;
-    if (floorNo >= BIOMES.length) {
-      if (fresh) this.hud()?.flash('Hai raggiunto il fondo: il nucleo è tuo');
-      return;
-    }
+    const last = floorNo >= BIOMES.length;
     const centre = centreTile(this.here.shape);
     const x = ROOM_X + (centre.col + 0.5) * TILE;
     const y = ROOM_Y + (Math.max(1, centre.row - 2) + 0.5) * TILE;
@@ -333,18 +332,26 @@ export default class PlayScene extends Phaser.Scene {
       this.shake.add(0.4);
       this.sparks.setEmitterAngle({ min: 0, max: 360 });
       this.sparks.explode(20, x, y);
-      this.hud()?.flash('Si è aperto un passaggio verso il basso');
+      this.hud()?.flash(last ? 'Hai raggiunto il fondo! Entra nella botola per uscire' : 'Si è aperto un passaggio verso il basso');
     }
     this.trapdoor = { x, y };
   }
 
-  /** Down the trapdoor: a new floor, keeping suit, items and coins. */
+  /** Down the trapdoor: a new floor, keeping suit, items and coins. Below the last floor, back to the menu. */
   private descend(): void {
     if (this.leaving || this.dead) return;
     this.leaving = true;
     this.player.setVelocity(0, 0);
     this.shootKeys.clear();
     this.tweens.add({ targets: this.player, scale: 0.2, alpha: 0, duration: 400, ease: 'Quad.In' });
+    if ((this.run.floor ?? 1) >= BIOMES.length) {
+      this.cameras.main.fadeOut(900, 0, 0, 0);
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+        this.scene.stop('hud');
+        this.scene.start('menu', { quality: this.quality, shake: this.shakeStrength, won: true });
+      });
+      return;
+    }
     const run: RunState = {
       ...this.run,
       floor: (this.run.floor ?? 1) + 1,
@@ -1235,7 +1242,11 @@ export default class PlayScene extends Phaser.Scene {
     if (!this.ready) {
       this.steadyFrames = delta < 34 ? this.steadyFrames + 1 : 0;
       this.player.setVelocity(0, 0);
-      if (this.steadyFrames >= 12 || time - this.createdAt > 3000) this.becomeReady(time);
+      // On the first room of a run, wait for the frame rate to settle. Walking
+      // through a door is instant: every sprite is already loaded, and making
+      // the player wait here left the touch sticks dead for seconds.
+      const throughDoor = this.run.from !== undefined;
+      if (throughDoor || this.steadyFrames >= 12 || time - this.createdAt > 3000) this.becomeReady(time);
     }
     if (this.tintUntil && time >= this.tintUntil) {
       this.player.clearTint();
