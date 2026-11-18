@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
 import { BASE_STATS, Stats, computeStats, fireCooldownMs } from '../rules/stats';
 import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
-import { RoomLayout, centreTile, doorTile, generateRoom, interiorSize } from '../rules/room';
+import { RoomLayout, centreTile, doorTile, generateRoom, interiorSize, solidRects } from '../rules/room';
 import { DoorLink, FloorLayout, FloorRoom, doorLinks, generateFloor } from '../rules/floor';
 import { Quality, frameView } from '../rules/view';
 import { actionFrom, animKey, facingFrom } from '../rules/facing';
@@ -909,7 +909,7 @@ export default class PlayScene extends Phaser.Scene {
       const exit = this.exitLink();
       if (exit) this.leave(exit);
     }
-    if (this.ready) this.enemies.update(time, delta);
+    if (this.ready) this.enemies.update(time);
     this.updatePickups(time, delta / 1000);
     if (this.tutorialMode) {
       const mode = this.inputMode();
@@ -1348,8 +1348,8 @@ export default class PlayScene extends Phaser.Scene {
       this.walls.add(zone);
     };
     // Every frame tile that is not floor is solid, except the doorways
-    // (closed doors add their own blocker). Runs of solid tiles in a row
-    // become one collider each.
+    // (closed doors add their own blocker). Solid tiles are merged into big
+    // rectangles, so walls have no seams for the player to snag on.
     const cols = this.room.cells[0].length;
     const rows = this.room.cells.length;
     const doorway = new Set<string>();
@@ -1357,22 +1357,14 @@ export default class PlayScene extends Phaser.Scene {
       const g = this.passage(link);
       for (let ty = g.y / TILE; ty < (g.y + g.h) / TILE; ty++) for (let tx = g.x / TILE; tx < (g.x + g.w) / TILE; tx++) doorway.add(`${tx},${ty}`);
     }
-    const solid = (tx: number, ty: number) => {
-      if (doorway.has(`${tx},${ty}`)) return false;
-      const cell = this.room.cells[ty - WALL_TILES]?.[tx - WALL_TILES];
-      return cell === undefined || cell === 'void';
-    };
-    for (let ty = 0; ty < rows + 2 * WALL_TILES; ty++) {
-      let start = -1;
-      for (let tx = 0; tx <= cols + 2 * WALL_TILES; tx++) {
-        const isSolid = tx < cols + 2 * WALL_TILES && solid(tx, ty);
-        if (isSolid && start < 0) start = tx;
-        if (!isSolid && start >= 0) {
-          addBlock(start * TILE, ty * TILE, (tx - start) * TILE, TILE);
-          start = -1;
-        }
-      }
-    }
+    const solid = Array.from({ length: rows + 2 * WALL_TILES }, (_, ty) =>
+      Array.from({ length: cols + 2 * WALL_TILES }, (_, tx) => {
+        if (doorway.has(`${tx},${ty}`)) return false;
+        const cell = this.room.cells[ty - WALL_TILES]?.[tx - WALL_TILES];
+        return cell === undefined || cell === 'void';
+      }),
+    );
+    for (const r of solidRects(solid)) addBlock(r.x * TILE, r.y * TILE, r.w * TILE, r.h * TILE);
 
     const edgeCells: { c: number; r: number }[] = [];
     const freeCells: { c: number; r: number }[] = [];
@@ -1389,10 +1381,10 @@ export default class PlayScene extends Phaser.Scene {
           const baseY = ROOM_Y + (r + 1) * TILE - 3;
           const prop = this.addProp(propKey(CRASH_SITE, id), x, baseY, true, id, rng);
           this.walls.add(prop);
+          // The body covers the whole cell, so rocks side by side leave no
+          // gaps for the player to wedge into and slide along smoothly.
           const body = prop.body as Phaser.Physics.Arcade.StaticBody;
-          const bw = Math.min(prop.width - 4, TILE - 4);
-          const bh = Math.min(prop.height - 4, 20);
-          body.setSize(bw, bh).setOffset((prop.width - bw) / 2, prop.height - bh - 1);
+          body.setSize(TILE, TILE).setOffset((prop.width - TILE) / 2, prop.height + 3 - TILE);
         } else if (cell === 'floor' && !reserved(c, r)) {
           freeCells.push({ c, r });
           // Next to a wall: room border or the rock of an L's missing corner.
