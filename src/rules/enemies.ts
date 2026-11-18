@@ -4,7 +4,7 @@
  */
 import type { Vec2 } from './input';
 
-export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater' | 'worker' | 'cocoon' | 'guardian' | 'slime' | 'jelly';
+export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater' | 'worker' | 'cocoon' | 'guardian' | 'slime' | 'jelly' | 'hunter' | 'fungus' | 'golem';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -29,7 +29,27 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   guardian: { kind: 'guardian', hp: 20, speed: 0.8, contactDamage: 1, body: { w: 26, h: 12 } },
   slime: { kind: 'slime', hp: 10, speed: 1.2, contactDamage: 1, body: { w: 26, h: 10 } },
   jelly: { kind: 'jelly', hp: 9, speed: 0.8, contactDamage: 1, body: { w: 18, h: 8 } },
+  hunter: { kind: 'hunter', hp: 14, speed: 1.6, contactDamage: 1, body: { w: 16, h: 10 } },
+  fungus: { kind: 'fungus', hp: 16, speed: 0, contactDamage: 1, body: { w: 24, h: 10 } },
+  golem: { kind: 'golem', hp: 30, speed: 0.55, contactDamage: 1, body: { w: 22, h: 10 } },
 };
+
+/** Hunter: keeps its distance, sidesteps, then throws a fast spear. */
+export const HUNTER_RANGE = 3.2;
+export const HUNTER_THROW_EVERY_MS = 2600;
+export const HUNTER_WINDUP_MS = 500;
+export const SPEAR_SPEED = 7;
+/** Fungus: now and then scatters spore mines that sit on the floor for a while. */
+export const FUNGUS_EVERY_MS = 3800;
+export const FUNGUS_WINDUP_MS = 700;
+export const FUNGUS_MINES = 3;
+export const MINE_LIFE_MS = 6000;
+/** Golem: slow; up close it slams the floor, hurting around it and throwing resin shards. */
+export const GOLEM_RANGE = 1.6;
+export const GOLEM_WINDUP_MS = 750;
+export const GOLEM_RECOVER_MS = 1100;
+export const GOLEM_SHARDS = 6;
+export const GOLEM_DAMAGE = 2;
 
 /**
  * Slime sizes, from the drop that dies for good (0) to the full blob (2):
@@ -114,7 +134,7 @@ export interface EnemyState {
 export function newEnemy(kind: EnemyKind, now: number, seed: number): EnemyState {
   if (kind === 'lurker') return { kind, phase: 'hidden', until: now + WAKE_MS, dir: { x: 0, y: 0 }, seed };
   const extra =
-    kind === 'jelly' ? seed * 1500 : kind === 'spitter' ? 600 + seed * 900 : kind === 'cocoon' ? 1200 + seed * 1500 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
+    kind === 'fungus' ? 800 + seed * 1500 : kind === 'hunter' ? 400 + seed * 1200 : kind === 'jelly' ? seed * 1500 : kind === 'spitter' ? 600 + seed * 900 : kind === 'cocoon' ? 1200 + seed * 1500 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
   return { kind, phase: 'idle', until: now + WAKE_MS + extra, dir: { x: 0, y: 0 }, seed };
 }
 
@@ -136,6 +156,12 @@ export interface EnemyStep {
   hatch?: number;
   /** The jelly sends out its electric ring this step: hurts within JELLY_PULSE_RADIUS. */
   pulse?: boolean;
+  /** The hunter throws a spear in this direction this step. */
+  spear?: Vec2;
+  /** The fungus scatters this many spore mines this step. */
+  mines?: number;
+  /** The golem slams the floor this step. */
+  slam?: boolean;
   /** Which animation fits: moving, attacking or resting. */
   anim: 'move' | 'attack' | 'idle';
 }
@@ -161,7 +187,7 @@ function rotate(v: Vec2, a: number): Vec2 {
 export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number): EnemyStep {
   const def = ENEMIES[s.kind];
   const { dir, dist } = toward(self, player);
-  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater' && s.kind !== 'cocoon' && s.kind !== 'jelly') {
+  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater' && s.kind !== 'cocoon' && s.kind !== 'jelly' && s.kind !== 'fungus') {
     return { state: s, velocity: STILL, anim: 'idle' };
   }
 
@@ -288,6 +314,38 @@ export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number):
       const until = phase !== s.phase ? now + JELLY_PULSE_EVERY_MS * 0.6 : s.until;
       return { state: { ...s, phase, until }, velocity: scale(v, def.speed), anim: 'move' };
     }
+    case 'hunter': {
+      // Keeps its distance and sidesteps; stops, draws back and throws a spear.
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return { state: { ...s, phase: 'chase', until: now + HUNTER_THROW_EVERY_MS }, velocity: STILL, anim: 'attack', spear: dir };
+      }
+      if (now >= s.until) return { state: { ...s, phase: 'windup', until: now + HUNTER_WINDUP_MS }, velocity: STILL, anim: 'attack' };
+      const away = dist < HUNTER_RANGE - 0.6 ? -1 : dist > HUNTER_RANGE + 0.6 ? 1 : 0;
+      // Sidesteps change side every second or so, like dodging.
+      const side = Math.floor(now / 1100 + s.seed * 4) % 2 === 0 ? 1 : -1;
+      const v = { x: dir.x * away - dir.y * side * 0.8, y: dir.y * away + dir.x * side * 0.8 };
+      const len = Math.hypot(v.x, v.y) || 1;
+      return { state: { ...s, phase: 'chase' }, velocity: { x: (v.x / len) * def.speed, y: (v.y / len) * def.speed }, anim: 'move' };
+    }
+    case 'fungus': {
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return { state: { ...s, phase: 'chase', until: now + FUNGUS_EVERY_MS }, velocity: STILL, anim: 'attack', mines: FUNGUS_MINES };
+      }
+      if (now >= s.until) return { state: { ...s, phase: 'windup', until: now + FUNGUS_WINDUP_MS }, velocity: STILL, anim: 'attack' };
+      return { state: s, velocity: STILL, anim: 'idle' };
+    }
+    case 'golem': {
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return { state: { ...s, phase: 'recover', until: now + GOLEM_RECOVER_MS }, velocity: STILL, anim: 'attack', slam: true };
+      }
+      const ready = s.phase !== 'recover' || now >= s.until;
+      if (ready && dist <= GOLEM_RANGE) return { state: { ...s, phase: 'windup', until: now + GOLEM_WINDUP_MS }, velocity: STILL, anim: 'attack' };
+      if (!ready) return { state: s, velocity: STILL, anim: 'idle' };
+      return { state: { ...s, phase: 'chase' }, velocity: scale(dir, def.speed), anim: 'move' };
+    }
     case 'miner': {
       if (s.phase === 'windup') {
         if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
@@ -321,9 +379,26 @@ export const HIVE_WEIGHTS: readonly [EnemyKind, number][] = [
   ['cocoon', 2],
   ['slime', 2],
   ['jelly', 2],
+  ['hunter', 2],
+  ['fungus', 1],
+  ['golem', 1],
 ];
 /** Every kind a room can be dealt (the lurker only comes in pools). */
-export const ALL_KINDS: readonly EnemyKind[] = ['crawler', 'spitter', 'drone', 'bloater', 'miner', 'worker', 'guardian', 'cocoon', 'slime', 'jelly'];
+export const ALL_KINDS: readonly EnemyKind[] = [
+  'crawler',
+  'spitter',
+  'drone',
+  'bloater',
+  'miner',
+  'worker',
+  'guardian',
+  'cocoon',
+  'slime',
+  'jelly',
+  'hunter',
+  'fungus',
+  'golem',
+];
 
 /**
  * Enemies are not tied to floors: any kind can turn up anywhere. The first
@@ -354,6 +429,9 @@ export const MAX_PER_ROOM: Record<EnemyKind, number> = {
   cocoon: 2,
   slime: 2,
   jelly: 3,
+  hunter: 2,
+  fungus: 2,
+  golem: 1,
 };
 
 interface RosterRng {
