@@ -28,7 +28,10 @@ const quality = pickQuality({ desktop: game.device.os.desktop, override: params.
 // Screen shake strength, `?shake=0` to `?shake=100` (percent). Default full.
 const shakeParam = Number(params.get('shake'));
 const shake = params.has('shake') && Number.isFinite(shakeParam) ? Math.min(1, Math.max(0, shakeParam / 100)) : 1;
-game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase(), quality, shake });
+// `?floor=2` starts the run on a deeper floor, to try it without playing the first.
+const floorParam = Math.floor(Number(params.get('floor')));
+const floor = Number.isFinite(floorParam) && floorParam > 1 ? floorParam : undefined;
+game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase(), quality, shake, floor });
 game.scene.add('hud', HudScene, false);
 
 // On touch devices, the first tap asks for fullscreen. It can be refused

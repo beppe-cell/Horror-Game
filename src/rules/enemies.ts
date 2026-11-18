@@ -266,13 +266,11 @@ export const SPAWN_WEIGHTS: readonly [EnemyKind, number][] = [
   ['bloater', 1],
   ['miner', 1],
 ];
-/** The hive: its own enemies, with a few from the crash site mixed in. */
+/** The hive: only its own enemies. */
 export const HIVE_WEIGHTS: readonly [EnemyKind, number][] = [
   ['worker', 3],
   ['guardian', 2],
   ['cocoon', 2],
-  ['crawler', 1],
-  ['spitter', 1],
 ];
 export const weightsFor = (floor: number): readonly [EnemyKind, number][] => (floor >= 2 ? HIVE_WEIGHTS : SPAWN_WEIGHTS);
 

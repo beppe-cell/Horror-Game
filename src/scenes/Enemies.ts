@@ -83,7 +83,7 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
     h: 69,
     // Drawn big and facing left; it hovers about 6 px above the ground.
     base: 68,
-    scale: 0.5,
+    scale: 0.62,
     facesLeft: true,
     anims: {
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 16, loop: true },
@@ -440,7 +440,7 @@ export class EnemyManager {
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
     const taken: EnemyKind[] = [];
-    if (pools.length && rng.next() < 0.5) {
+    if (pools.length && this.floor === 1 && rng.next() < 0.5) {
       const cell = rng.pick(pools);
       const p = toWorld(cell.c, cell.r);
       this.add('lurker', p.x, p.y, rng.next());
