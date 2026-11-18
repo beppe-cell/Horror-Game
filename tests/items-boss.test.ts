@@ -1,0 +1,85 @@
+import { describe, expect, it } from 'vitest';
+import { Rng } from '../src/rules/rng';
+import { ITEM_IDS, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../src/rules/items';
+import { BASE_STATS, computeStats } from '../src/rules/stats';
+import { heal, newHealth } from '../src/rules/health';
+import { BossState, ENRAGED_RING, MAX_BROOD, RING, newBoss, nextAttack, stepBoss } from '../src/rules/boss';
+
+describe('items', () => {
+  it('never offers an item the player has', () => {
+    const rng = new Rng(3);
+    const owned = ITEM_IDS.slice(0, 9);
+    for (let i = 0; i < 20; i++) expect(pickItem(rng, owned)).toBe(ITEM_IDS[9]);
+    expect(pickItem(rng, ITEM_IDS)).toBeUndefined();
+  });
+
+  it('raises stats', () => {
+    const s = computeStats(BASE_STATS, itemModifiers(['plasma-core', 'rapid-capacitor', 'leg-servos']));
+    expect(s.damage).toBeGreaterThan(BASE_STATS.damage);
+    expect(s.fireRate).toBeGreaterThan(BASE_STATS.fireRate);
+    expect(s.moveSpeed).toBeGreaterThan(BASE_STATS.moveSpeed);
+    expect(s.range).toBe(BASE_STATS.range);
+  });
+
+  it('adds a filled suit cell and shield', () => {
+    let h = { ...newHealth(3), hp: 3 };
+    h = applyItemToHealth(h, 'armor-plate');
+    expect(h).toMatchObject({ max: 8, hp: 5 });
+    h = applyItemToHealth(h, 'shield-generator');
+    expect(h.shield).toBe(4);
+    expect(heal(h, 10).hp).toBe(8);
+  });
+
+  it('knows shot effects', () => {
+    expect(hasEffect(['reflecting-prism'], 'bounce')).toBe(true);
+    expect(hasEffect(['reflecting-prism'], 'pierce')).toBe(false);
+  });
+
+  it('caps the drop chance', () => {
+    expect(energyDropChance(0)).toBeCloseTo(0.3);
+    expect(energyDropChance(100)).toBe(0.85);
+    expect(energyDropChance(-100)).toBe(0.1);
+  });
+});
+
+describe('brood mother', () => {
+  const run = (s: BossState, t: number, hp = 1, brood = 0, self = { x: 0, y: 0 }, player = { x: 5, y: 0 }) =>
+    stepBoss(s, self, player, t, hp, brood);
+
+  it('waits, then crawls towards the player', () => {
+    let s = newBoss(0);
+    expect(run(s, 100).velocity).toEqual({ x: 0, y: 0 });
+    s = run(s, 2000).state;
+    expect(s.phase).toBe('crawl');
+    expect(run(s, 2100).velocity.x).toBeGreaterThan(0);
+  });
+
+  it('attacks in turn and fires a bigger ring when hurt', () => {
+    let s: BossState = { phase: 'crawl', until: 0, since: 0, attacks: 0 };
+    s = run(s, 1).state;
+    expect(s.phase).toBe('spores');
+    expect(run(s, 5000).ring).toBe(RING);
+    expect(run(s, 5000, 0.4).ring).toBe(ENRAGED_RING);
+    expect(nextAttack(1, 0)).toBe('burrow');
+    expect(nextAttack(2, 0)).toBe('brood');
+    expect(nextAttack(2, MAX_BROOD)).toBe('spores');
+  });
+
+  it('burrows to the player and bursts out', () => {
+    let s: BossState = { phase: 'sink', until: 0, since: 0, attacks: 2 };
+    let step = run(s, 1);
+    expect(step.hidden).toBe(true);
+    s = step.state;
+    step = run(s, 100);
+    expect(step.velocity.x).toBeGreaterThan(0);
+    // Standing on the player after the minimum time: she comes out.
+    step = run(s, 1000, 1, 0, { x: 5, y: 0 });
+    expect(step.emerge).toBe(true);
+    expect(step.state.phase).toBe('emerge');
+  });
+
+  it('never lays more than the brood cap', () => {
+    const s: BossState = { phase: 'brood', until: 0, since: 0, attacks: 3 };
+    expect(run(s, 1, 1, MAX_BROOD - 1).brood).toBe(1);
+  });
+});

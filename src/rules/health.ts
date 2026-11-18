@@ -42,3 +42,8 @@ export function cellIcons(h: Health): number[] {
   for (let i = 0; i < h.max / 2; i++) icons.push(Math.max(0, Math.min(2, h.hp - i * 2)));
   return icons;
 }
+
+/** Restores `amount` half cells, never above the maximum. */
+export function heal(h: Health, amount: number): Health {
+  return { ...h, hp: Math.min(h.max, h.hp + amount) };
+}

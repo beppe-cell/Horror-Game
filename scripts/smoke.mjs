@@ -88,6 +88,45 @@ try {
     });
     await page.screenshot({ path: 'smoke-next-room.png' });
     if (moved.seed !== 'SMOKETST' || moved.visited !== 2 || !moved.from) errors.push(`[desktop] room change failed via ${door}: ${JSON.stringify(moved)}`);
+
+    // Jump to a room of the given kind, entering from below.
+    const goTo = async (kind) => {
+      await page.evaluate((k) => {
+        const s = window.game.scene.getScene('play');
+        const room = s.floor.rooms.find((r) => r.kind === k);
+        s.scene.restart({ quality: s.quality, shake: 0, run: { ...s.run, room: room.id, from: 'down' } });
+      }, kind);
+      await page.waitForFunction((k) => window.game.scene.getScene('play')?.here?.kind === k && window.game.scene.getScene('play').player, kind, { timeout: 10000 });
+      await page.waitForTimeout(800);
+    };
+
+    // Treasure room: walk onto the pedestal and take the item.
+    await goTo('treasure');
+    await page.evaluate(() => {
+      const s = window.game.scene.getScene('play');
+      s.player.setPosition(s.player.x, 4 * 32 + 64 + 6 - 46 + 24);
+    });
+    await page.waitForTimeout(500);
+    const items = await page.evaluate(() => window.game.scene.getScene('play').run.items);
+    await page.screenshot({ path: 'smoke-treasure.png' });
+    if (items.length !== 1) errors.push(`[desktop] treasure item not taken: ${JSON.stringify(items)}`);
+
+    // Boss room: she wakes and moves, then dies and the doors open.
+    await goTo('boss');
+    await page.evaluate(() => (window.game.scene.getScene('play').health.invulnerableUntil = 1e12));
+    await page.waitForTimeout(2500);
+    const boss = await page.evaluate(() => {
+      const b = window.game.scene.getScene('play').enemies.boss;
+      return b && { phase: b.state.phase, hp: b.hp, anim: b.sprite.anims.currentAnim?.key };
+    });
+    await page.screenshot({ path: 'smoke-boss.png' });
+    if (!boss || boss.phase === 'wake') errors.push(`[desktop] boss missing or asleep: ${JSON.stringify(boss)}`);
+    const won = await page.evaluate(() => {
+      const s = window.game.scene.getScene('play');
+      s.enemies.killBoss(s.enemies.boss);
+      return { cleared: s.run.cleared.includes(s.here.id), alive: s.enemies.alive };
+    });
+    if (!won.cleared || won.alive !== 0) errors.push(`[desktop] boss death did not clear the room: ${JSON.stringify(won)}`);
     await context.close();
   }
 

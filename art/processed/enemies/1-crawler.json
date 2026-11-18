@@ -1,8 +1,8 @@
 {
- "pixelSize": 6.2,
- "frameWidth": 27,
- "frameHeight": 25,
+ "pixelSize": 5.75,
+ "frameWidth": 38,
+ "frameHeight": 36,
  "columns": 6,
- "rows": 6,
+ "rows": 3,
  "empty": []
 }
