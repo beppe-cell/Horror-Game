@@ -171,6 +171,8 @@ export interface PlayData {
   quality?: Quality;
   /** Screen shake strength, 0 (off) to 1. */
   shake?: number;
+  /** Floor a new run starts on (`?floor=2`, for testing). */
+  floor?: number;
 }
 
 export default class PlayScene extends Phaser.Scene {
@@ -267,7 +269,7 @@ export default class PlayScene extends Phaser.Scene {
 
   init(data: PlayData): void {
     this.seed = data.run?.seed ?? data.seed ?? newSeedString();
-    this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [] };
+    this.run = data.run ?? { seed: this.seed, room: 0, health: newHealth(START_CELLS), cleared: [], visited: [], items: [], taken: [], floor: data.floor };
     this.doors = [];
     this.pickups = [];
     this.trapdoor = null;

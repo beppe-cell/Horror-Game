@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
-import { BASH_DAMAGE, BASH_RANGE, BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../rules/enemies';
+import { BASH_DAMAGE, BASH_RANGE, BLOAT_RING, JELLY_PULSE_RADIUS, SLIME_BIG, SLIME_SIZES, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../rules/enemies';
 import { QUEEN_BODY, QUEEN_CONTACT_DAMAGE, QUEEN_HP, QUEEN_WAKE_MS, QueenState, SPIT_SPREAD, newQueen, stepQueen } from '../rules/queen';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
@@ -83,7 +83,7 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
     h: 69,
     // Drawn big and facing left; it hovers about 6 px above the ground.
     base: 68,
-    scale: 0.5,
+    scale: 0.62,
     facesLeft: true,
     anims: {
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 16, loop: true },
@@ -113,6 +113,29 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
       attack: { frames: [6, 7, 8, 9, 10, 11], fps: 11, loop: false },
       death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
+  slime: {
+    w: 41,
+    h: 53,
+    // Rests on row 43; its scale depends on its size (rules SLIME_SIZES).
+    base: 43,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 8, loop: true },
+      split: { frames: [6, 7, 8, 9, 10, 11], fps: 16, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 10, loop: false },
+    },
+  },
+  jelly: {
+    w: 41,
+    h: 58,
+    // It floats: the ground is a few pixels below its tentacle tips.
+    base: 60,
+    scale: 0.6,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 7, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 8, loop: false },
     },
   },
 };
@@ -440,7 +463,7 @@ export class EnemyManager {
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
     const taken: EnemyKind[] = [];
-    if (pools.length && rng.next() < 0.5) {
+    if (pools.length && this.floor === 1 && rng.next() < 0.5) {
       const cell = rng.pick(pools);
       const p = toWorld(cell.c, cell.r);
       this.add('lurker', p.x, p.y, rng.next());
@@ -460,23 +483,25 @@ export class EnemyManager {
     }
   }
 
-  private add(kind: EnemyKind, x: number, baseY: number, seed: number): Enemy {
+  private add(kind: EnemyKind, x: number, baseY: number, seed: number, size = SLIME_BIG): Enemy {
     const { scene } = this.host;
     const def = ENEMIES[kind];
     const sprite = scene.physics.add.sprite(x, baseY, `en-${kind}`, 0);
     // Start each enemy on a different frame so they do not move in step.
     const first = kind === 'spitter' || kind === 'lurker' || kind === 'cocoon' ? 'idle' : 'move';
     sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
-    const scale = SHEETS[kind].scale ?? 1;
+    const scale = kind === 'slime' ? SLIME_SIZES[size].scale : (SHEETS[kind].scale ?? 1);
     const base = SHEETS[kind].base ?? sprite.height - 1;
     sprite.setOrigin(0.5, (base + 1) / sprite.height).setScale(scale).setLighting(true).setDepth(this.host.depthAt(baseY));
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, base - def.body.h);
     if (def.speed === 0) body.setImmovable(true);
-    (kind === 'drone' || kind === 'worker' ? this.flyers : this.group).add(sprite);
+    (kind === 'drone' || kind === 'worker' || kind === 'jelly' ? this.flyers : this.group).add(sprite);
     const h = sprite.height;
     this.host.track(sprite, base, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
-    const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp * this.hpScale, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 }, hidden: kind === 'lurker' };
+    const state = kind === 'slime' ? { ...newEnemy(kind, scene.time.now, seed), size } : newEnemy(kind, scene.time.now, seed);
+    const hp = kind === 'slime' ? SLIME_SIZES[size].hp : def.hp;
+    const enemy = { sprite, state, hp: hp * this.hpScale, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 }, hidden: kind === 'lurker' };
     this.enemies.push(enemy);
     return enemy;
   }
@@ -501,7 +526,7 @@ export class EnemyManager {
         vy = e.knock.y;
       }
       // Drones fly over everything but walls and the rock of an L's missing corner.
-      if ((e.state.kind === 'drone' || e.state.kind === 'worker') && !this.host.open(e.sprite.x + vx / 30, e.sprite.y + vy / 30)) {
+      if ((e.state.kind === 'drone' || e.state.kind === 'worker' || e.state.kind === 'jelly') && !this.host.open(e.sprite.x + vx / 30, e.sprite.y + vy / 30)) {
         const d = Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) || 1;
         vx = ((feet.x - e.sprite.x) / d) * 40;
         vy = ((feet.y - e.sprite.y) / d) * 40;
@@ -518,6 +543,7 @@ export class EnemyManager {
         if (Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) <= BASH_RANGE * t) this.host.hurtPlayer(BASH_DAMAGE, e.sprite.x, e.sprite.y);
       }
       if (step.hatch) this.hatch(e, step.hatch);
+      if (step.pulse) this.pulse(e);
       if (step.spit) this.fireSpore(e, step.spit);
       if (step.fan) {
         // Red bolts from the drone's eye.
@@ -544,6 +570,26 @@ export class EnemyManager {
       const s = child as Phaser.Physics.Arcade.Image;
       if (s.active && Math.hypot(s.x - (s.getData('x0') as number), s.y - (s.getData('y0') as number)) > 8 * t) this.popSpore(s);
     }
+  }
+
+  /** The jelly's electric ring: a flash spreading out to JELLY_PULSE_RADIUS. */
+  private pulse(e: Enemy): void {
+    const { scene } = this.host;
+    const r = JELLY_PULSE_RADIUS * this.host.tile;
+    const x = e.sprite.x;
+    const y = e.sprite.y - 4;
+    const ring = scene.add.graphics().setDepth(this.host.depthAt(e.sprite.y) + 0.01).setBlendMode(Phaser.BlendModes.ADD);
+    const draw = (k: number) => {
+      ring.clear();
+      ring.lineStyle(3 - 2 * k, 0xa0f0ff, 1 - k).strokeEllipse(x, y, r * 2 * k, r * k);
+      ring.fillStyle(0x6a5ab8, 0.25 * (1 - k)).fillEllipse(x, y, r * 2 * k, r * k);
+    };
+    draw(0.1);
+    scene.tweens.addCounter({ from: 0.1, to: 1, duration: 260, ease: 'Quad.Out', onUpdate: (tw) => draw(tw.getValue() ?? 1), onComplete: () => ring.destroy() });
+    this.clank.explode(16, x, y - e.sprite.displayHeight * 0.5);
+    const feet = this.host.playerFeet();
+    // The ring lies flat on the floor: half as tall as it is wide.
+    if (Math.hypot(feet.x - x, (feet.y - y) * 2) <= r) this.host.hurtPlayer(1, x, y);
   }
 
   /** Larvae crawl out of a cocoon: small, weak crawlers. */
@@ -676,6 +722,11 @@ export class EnemyManager {
   private kill(e: Enemy): void {
     const { sprite } = e;
     const kind = e.state.kind;
+    const size = e.state.size ?? SLIME_BIG;
+    if (kind === 'slime' && size > 0) {
+      this.split(e, size - 1);
+      return;
+    }
     (kind === 'spitter' || kind === 'bloater' ? this.sporePuff : this.goo).explode(kind === 'miner' ? 28 : 18, sprite.x, sprite.y - sprite.displayHeight / 2);
     if (kind === 'bloater') {
       // It bursts: a ring of spores, so it is best killed from afar.
@@ -700,6 +751,32 @@ export class EnemyManager {
       this.host.scene.tweens.add({ targets: sprite, alpha: 0, delay: 900, duration: 700, onComplete: () => sprite.destroy() });
     });
     if (this.enemies.length === 0 && !this.boss && !this.queen) this.onCleared?.();
+  }
+
+  /** A slime splits in two smaller, faster ones; the old blob plays its split and fades. */
+  private split(e: Enemy, size: number): void {
+    const { sprite } = e;
+    const { x: bx, y: by, w: bw, h: bh } = this.host.bounds;
+    this.goo.explode(14, sprite.x, sprite.y - sprite.displayHeight / 2);
+    this.host.shakeAdd(0.12);
+    this.host.untrack(sprite);
+    this.enemies = this.enemies.filter((x) => x !== e);
+    const off = 6 + 8 * size;
+    for (const side of [-1, 1]) {
+      const x = Phaser.Math.Clamp(sprite.x + side * off, bx + 10, bx + bw - 10);
+      const y = Phaser.Math.Clamp(sprite.y, by + 12, by + bh - 4);
+      const child = this.add('slime', x, y, Math.random(), size);
+      child.state = { ...child.state, until: this.host.scene.time.now + 200 };
+      child.knockUntil = this.host.scene.time.now + 160;
+      child.knock = { x: side * 90, y: 0 };
+      child.sprite.setAlpha(0);
+      this.host.scene.tweens.add({ targets: child.sprite, alpha: 1, duration: 220 });
+    }
+    // The old blob pinches in two and fades as the two new ones appear.
+    sprite.disableBody(true, false);
+    sprite.clearTint();
+    sprite.play(animName('slime', 'split'));
+    this.host.scene.tweens.add({ targets: sprite, alpha: 0, duration: 260, onComplete: () => sprite.destroy() });
   }
 
   /** A piercing shot hits each enemy once; returns true if it already hit this one. */

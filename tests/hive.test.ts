@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HATCH_MAX, HIVE_WEIGHTS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../src/rules/enemies';
+import { HATCH_MAX, HIVE_WEIGHTS, JELLY_WINDUP_MS, SLIME_BIG, SLIME_SIZES, newEnemy, roomRoster, stepEnemy, weightsFor } from '../src/rules/enemies';
 import { MAX_SWARM, QUEEN_ORDER, newQueen, nextQueenAttack, stepQueen } from '../src/rules/queen';
 import { Rng } from '../src/rules/rng';
 
@@ -71,5 +71,37 @@ describe('hive queen', () => {
     expect(fans).toBeGreaterThan(0);
     expect(charged).toBe(true);
     expect(swarm).toBeLessThanOrEqual(MAX_SWARM - 3);
+  });
+});
+
+describe('slime and jelly', () => {
+  it('smaller slimes are faster and weaker', () => {
+    for (let i = 1; i < SLIME_SIZES.length; i++) {
+      expect(SLIME_SIZES[i].speed).toBeLessThan(SLIME_SIZES[i - 1].speed);
+      expect(SLIME_SIZES[i].hp).toBeGreaterThan(SLIME_SIZES[i - 1].hp);
+    }
+  });
+
+  it('the slime moves in hops', () => {
+    const s = { ...newEnemy('slime', 0, 0), size: SLIME_BIG };
+    const speeds = new Set<number>();
+    for (let t = 2000; t < 2750; t += 25) speeds.add(Math.round(Math.hypot(...Object.values(stepEnemy(s, { x: 0, y: 0 }, { x: 4, y: 0 }, t).velocity)) * 10));
+    expect(speeds.size).toBeGreaterThan(1);
+  });
+
+  it('the jelly pulses only after glowing up', () => {
+    let s = newEnemy('jelly', 0, 0);
+    let pulses = 0;
+    let lastWindup = -Infinity;
+    for (let t = 0; t < 20000; t += 50) {
+      const step = stepEnemy(s, { x: 0, y: 0 }, { x: 2, y: 0 }, t);
+      if (step.state.phase === 'windup' && s.phase !== 'windup') lastWindup = t;
+      if (step.pulse) {
+        pulses++;
+        expect(t - lastWindup).toBeGreaterThanOrEqual(JELLY_WINDUP_MS);
+      }
+      s = step.state;
+    }
+    expect(pulses).toBeGreaterThan(2);
   });
 });

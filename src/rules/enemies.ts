@@ -4,7 +4,7 @@
  */
 import type { Vec2 } from './input';
 
-export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater' | 'worker' | 'cocoon' | 'guardian';
+export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater' | 'worker' | 'cocoon' | 'guardian' | 'slime' | 'jelly';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -27,7 +27,28 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   worker: { kind: 'worker', hp: 6, speed: 2.3, contactDamage: 1, body: { w: 24, h: 14 } },
   cocoon: { kind: 'cocoon', hp: 14, speed: 0, contactDamage: 1, body: { w: 30, h: 12 } },
   guardian: { kind: 'guardian', hp: 20, speed: 0.8, contactDamage: 1, body: { w: 26, h: 12 } },
+  slime: { kind: 'slime', hp: 10, speed: 1.2, contactDamage: 1, body: { w: 26, h: 10 } },
+  jelly: { kind: 'jelly', hp: 9, speed: 0.8, contactDamage: 1, body: { w: 18, h: 8 } },
 };
+
+/**
+ * Slime sizes, from the drop that dies for good (0) to the full blob (2):
+ * a killed slime bigger than 0 splits into two of the next size down,
+ * smaller and faster.
+ */
+export const SLIME_SIZES = [
+  { hp: 2, speed: 2.4, scale: 0.4 },
+  { hp: 5, speed: 1.7, scale: 0.55 },
+  { hp: 10, speed: 1.2, scale: 0.75 },
+] as const;
+export const SLIME_BIG = SLIME_SIZES.length - 1;
+/** Slime hop: one squash-and-leap cycle. */
+export const SLIME_HOP_MS = 750;
+/** Jelly: drifts at this distance, then charges up and sends out an electric ring. */
+export const JELLY_RANGE = 2.2;
+export const JELLY_PULSE_EVERY_MS = 3400;
+export const JELLY_WINDUP_MS = 900;
+export const JELLY_PULSE_RADIUS = 1.7;
 
 /** Worker: zig-zags in, then dives at the astronaut from close range. */
 export const DIVE_RANGE = 2.4;
@@ -86,12 +107,14 @@ export interface EnemyState {
   seed: number;
   /** Times the cocoon has hatched. */
   hatched?: number;
+  /** Slime size, 0 (smallest) to SLIME_BIG. */
+  size?: number;
 }
 
 export function newEnemy(kind: EnemyKind, now: number, seed: number): EnemyState {
   if (kind === 'lurker') return { kind, phase: 'hidden', until: now + WAKE_MS, dir: { x: 0, y: 0 }, seed };
   const extra =
-    kind === 'spitter' ? 600 + seed * 900 : kind === 'cocoon' ? 1200 + seed * 1500 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
+    kind === 'jelly' ? seed * 1500 : kind === 'spitter' ? 600 + seed * 900 : kind === 'cocoon' ? 1200 + seed * 1500 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
   return { kind, phase: 'idle', until: now + WAKE_MS + extra, dir: { x: 0, y: 0 }, seed };
 }
 
@@ -111,6 +134,8 @@ export interface EnemyStep {
   bash?: boolean;
   /** The cocoon releases this many larvae this step. */
   hatch?: number;
+  /** The jelly sends out its electric ring this step: hurts within JELLY_PULSE_RADIUS. */
+  pulse?: boolean;
   /** Which animation fits: moving, attacking or resting. */
   anim: 'move' | 'attack' | 'idle';
 }
@@ -136,7 +161,7 @@ function rotate(v: Vec2, a: number): Vec2 {
 export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number): EnemyStep {
   const def = ENEMIES[s.kind];
   const { dir, dist } = toward(self, player);
-  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater' && s.kind !== 'cocoon') {
+  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater' && s.kind !== 'cocoon' && s.kind !== 'jelly') {
     return { state: s, velocity: STILL, anim: 'idle' };
   }
 
@@ -240,6 +265,29 @@ export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number):
       if (!ready) return { state: s, velocity: STILL, anim: 'idle' };
       return { state: { ...s, phase: 'chase' }, velocity: scale(dir, def.speed), anim: 'move' };
     }
+    case 'slime': {
+      // Hops after the astronaut: moves only in the leap part of each squash-and-leap.
+      const size = SLIME_SIZES[s.size ?? SLIME_BIG];
+      const t = ((now / SLIME_HOP_MS + s.seed) % 1 + 1) % 1;
+      const leap = t > 0.3 && t < 0.75 ? 1.8 : 0.15;
+      return { state: { ...s, phase: 'chase' }, velocity: scale(dir, size.speed * leap), anim: 'move' };
+    }
+    case 'jelly': {
+      // Drifts near the astronaut, glows brighter, then sends out an electric ring.
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return { state: { ...s, phase: 'chase', until: now + JELLY_PULSE_EVERY_MS }, velocity: STILL, anim: 'attack', pulse: true };
+      }
+      if (s.phase !== 'idle' && now >= s.until) {
+        return { state: { ...s, phase: 'windup', until: now + JELLY_WINDUP_MS }, velocity: STILL, anim: 'attack' };
+      }
+      const away = dist < JELLY_RANGE - 0.4 ? -0.5 : dist > JELLY_RANGE + 0.4 ? 1 : 0;
+      const sway = Math.sin(now / 700 + s.seed * 6) * 0.5;
+      const v = { x: dir.x * away - dir.y * sway, y: dir.y * away + dir.x * sway };
+      const phase = s.phase === 'idle' && now >= s.until ? 'chase' : s.phase;
+      const until = phase !== s.phase ? now + JELLY_PULSE_EVERY_MS * 0.6 : s.until;
+      return { state: { ...s, phase, until }, velocity: scale(v, def.speed), anim: 'move' };
+    }
     case 'miner': {
       if (s.phase === 'windup') {
         if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
@@ -266,13 +314,13 @@ export const SPAWN_WEIGHTS: readonly [EnemyKind, number][] = [
   ['bloater', 1],
   ['miner', 1],
 ];
-/** The hive: its own enemies, with a few from the crash site mixed in. */
+/** The hive: only its own enemies. */
 export const HIVE_WEIGHTS: readonly [EnemyKind, number][] = [
   ['worker', 3],
   ['guardian', 2],
   ['cocoon', 2],
-  ['crawler', 1],
-  ['spitter', 1],
+  ['slime', 2],
+  ['jelly', 2],
 ];
 export const weightsFor = (floor: number): readonly [EnemyKind, number][] => (floor >= 2 ? HIVE_WEIGHTS : SPAWN_WEIGHTS);
 
@@ -290,6 +338,8 @@ export const MAX_PER_ROOM: Record<EnemyKind, number> = {
   worker: 4,
   guardian: 2,
   cocoon: 2,
+  slime: 2,
+  jelly: 3,
 };
 
 interface RosterRng {
