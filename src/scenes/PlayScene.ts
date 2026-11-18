@@ -369,6 +369,7 @@ export default class PlayScene extends Phaser.Scene {
       depthAt,
       shakeAdd: (amount) => this.shake.add(amount),
       playerFeet: () => this.playerFeet(),
+      open: (x, y) => !this.blockedAt(x, y),
     });
     this.enemies.onCleared = () => {
       this.run.cleared.push(this.here.id);
@@ -383,7 +384,9 @@ export default class PlayScene extends Phaser.Scene {
     const cellBase = (c: number, r: number) => ({ x: ROOM_X + c * TILE + TILE / 2, y: ROOM_Y + (r + 1) * TILE - 4 });
     if (fights && this.here.kind === 'normal') {
       // Bigger rooms hold more enemies.
-      this.enemies.spawn(enemyRng, this.spawnCells, this.playerFeet(), cellBase, (area - 1) * 2);
+      const water: { c: number; r: number }[] = [];
+      this.room.cells.forEach((row, r) => row.forEach((cell, c) => cell === 'water' && water.push({ c, r })));
+      this.enemies.spawn(enemyRng, this.spawnCells, this.playerFeet(), cellBase, (area - 1) * 2, water);
     } else if (fights && this.here.kind === 'boss') {
       // She waits on the free floor farthest from the door the player came in by.
       const feet = this.playerFeet();

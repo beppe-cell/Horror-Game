@@ -87,9 +87,12 @@ struttura aliena sotterranea, piano dopo piano, fino al suo nucleo.
 
 | Nemico | Vita | Comportamento | Danno a contatto |
 |---|---|---|---|
-| Strisciante (larva aliena) | 7 | Insegue strisciando con un ondeggiamento laterale | ½ cella |
+| Strisciante (zecca aliena) | 7 | Insegue strisciando con un ondeggiamento laterale | ½ cella |
 | Sputatore (fungo-creatura) | 10 | Fermo; ogni 2,2 s si gonfia (avviso) e spara una spora verso il giocatore | ½ cella (anche la spora) |
 | Ex-minatore infetto | 22 | Lento; se il giocatore è entro 2,6 tile si blocca e trema in rosso (avviso), poi carica a 4,2 tile/s; dopo la carica si riprende per 1,4 s | 1 cella |
+| Sentinella guasta (drone) | 8 | Vola sopra rocce e acqua; resta a circa 3,5 tile girando attorno al giocatore; ogni 2,6 s si ferma (avviso) e spara tre raggi rossi a ventaglio | ½ cella (anche i raggi) |
+| Annegato (tentacoli) | 12 | Nascosto in una pozza: non si può colpire. Se il giocatore arriva entro 2,4 tile emerge, colpisce chi è entro 1,4 tile e resta fuori 1,4 s, poi si reimmerge | ½ cella |
+| Sacca gonfia | 9 | Fluttua lenta verso il giocatore, ogni 3,2 s sbuffa una spora; quando muore esplode in un anello di 8 spore | ½ cella (anche le spore) |
 
 Logica in `src/rules/enemies.ts` (testata), gestione nel gioco in `src/scenes/Enemies.ts`. I colpi colpiscono un nemico se attraversano la sua figura disegnata o se la loro ombra cade sulla sua base (così si colpiscono anche i nemici bassi). Colpito: lampo bianco, piccolo rinculo. Morto: schizzi, scossa, schiacciamento e dissolvenza. Grafica da Gemini (`docs/art/prompt-nemici-piano1.md`), estratta con `npm run enemies` in modalità griglia (`@grid=CxR`: ogni frame resta dove è stato disegnato nella sua cella, così le animazioni non tremano). Animazioni usate: movimento, attacco (sputatore e minatore) e morte; il lampo bianco dei colpi è fatto dal codice. Nota: nel foglio del minatore le escrescenze compaiono e scompaiono tra un frame e l'altro (incoerenza di Gemini).
 

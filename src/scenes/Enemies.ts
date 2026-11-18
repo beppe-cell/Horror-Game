@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
-import { ENEMIES, EnemyKind, EnemyState, SPORE_SPEED, newEnemy, stepEnemy } from '../rules/enemies';
+import { BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, newEnemy, stepEnemy } from '../rules/enemies';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
 
@@ -39,6 +39,42 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
       attack: { frames: [6, 7, 8, 9, 10, 11], fps: 11, loop: true },
       death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
+  drone: {
+    w: 34,
+    h: 38,
+    // It hovers: the ground is 10 px below the bottom of its drawing (row 33).
+    base: 43,
+    scale: 0.8,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 10, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 10, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 8, loop: false },
+    },
+  },
+  lurker: {
+    w: 39,
+    h: 34,
+    // The pool rests on row 30.
+    base: 30,
+    scale: 0.9,
+    anims: {
+      idle: { frames: [0, 1, 2, 3, 4, 5], fps: 5, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 4, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
+  bloater: {
+    w: 38,
+    h: 41,
+    // Tendril tips on row 37.
+    base: 37,
+    scale: 0.8,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 6, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 12, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 10, loop: false },
     },
   },
 };
@@ -119,6 +155,8 @@ export interface EnemyHost {
   shakeAdd(amount: number): void;
   /** Where the astronaut's feet are, in world pixels. */
   playerFeet(): { x: number; y: number };
+  /** True over room floor or water (not walls or the rock of an L's missing corner). */
+  open(x: number, y: number): boolean;
 }
 
 interface Boss {
@@ -136,6 +174,8 @@ interface Enemy {
   flashUntil: number;
   knockUntil: number;
   knock: { x: number; y: number };
+  /** Under water (the lurker): no hits either way. */
+  hidden: boolean;
 }
 
 /** Height of player shots above the floor, in pixels (matches PlayScene). */
@@ -145,6 +185,8 @@ const SHOT_FLIGHT_HEIGHT = 16;
 const SPAWN_WEIGHTS: [EnemyKind, number][] = [
   ['crawler', 3],
   ['spitter', 1],
+  ['drone', 1],
+  ['bloater', 1],
   ['miner', 1],
 ];
 
@@ -163,6 +205,8 @@ export class EnemyManager {
   private goo!: Phaser.GameObjects.Particles.ParticleEmitter;
   private sporePuff!: Phaser.GameObjects.Particles.ParticleEmitter;
   private group!: Phaser.Physics.Arcade.Group;
+  /** Drones: they fly over rocks and water, so they do not collide with walls. */
+  private flyers!: Phaser.Physics.Arcade.Group;
   /** Called once when the last enemy dies. */
   onCleared?: () => void;
 
@@ -172,6 +216,7 @@ export class EnemyManager {
     createBossAnims(scene);
     makeSporeTexture(scene);
     this.group = scene.physics.add.group();
+    this.flyers = scene.physics.add.group();
     this.spores = scene.physics.add.group({ defaultKey: 'en-spore', maxSize: 60 });
     this.goo = scene.add
       .particles(0, 0, 'px-spark', {
@@ -207,11 +252,11 @@ export class EnemyManager {
 
     scene.physics.add.collider(this.group, host.walls);
     scene.physics.add.collider(this.group, this.group);
-    scene.physics.add.overlap(host.player, this.group, (_p, sprite) => {
+    scene.physics.add.overlap(host.player, [this.group, this.flyers], (_p, sprite) => {
       const b = this.boss;
       if (b && sprite === b.sprite) host.hurtPlayer(BOSS_CONTACT_DAMAGE, b.sprite.x, b.sprite.y);
       const e = this.find(sprite as Phaser.Physics.Arcade.Sprite);
-      if (e) host.hurtPlayer(ENEMIES[e.state.kind].contactDamage, e.sprite.x, e.sprite.y);
+      if (e && !e.hidden) host.hurtPlayer(ENEMIES[e.state.kind].contactDamage, e.sprite.x, e.sprite.y);
     });
     scene.physics.add.overlap(this.spores, host.walls, (spore) => this.popSpore(spore as Phaser.Physics.Arcade.Image));
     scene.physics.add.overlap(host.player, this.spores, (_p, spore) => {
@@ -245,8 +290,27 @@ export class EnemyManager {
     this.boss = { sprite, state: newBoss(scene.time.now), hp: BOSS_HP, flashUntil: 0, nextDirt: 0 };
   }
 
-  /** Places 3-5 enemies (plus `extra` in big rooms) on free cells away from the player's start. */
-  spawn(rng: Rng, cells: { c: number; r: number }[], origin: { x: number; y: number }, toWorld: (c: number, r: number) => { x: number; y: number }, extra = 0): void {
+  /**
+   * Places 3-5 enemies (plus `extra` in big rooms) on free cells away from
+   * the player's start, and sometimes a lurker in a pool (`water` cells).
+   */
+  spawn(
+    rng: Rng,
+    cells: { c: number; r: number }[],
+    origin: { x: number; y: number },
+    toWorld: (c: number, r: number) => { x: number; y: number },
+    extra = 0,
+    water: { c: number; r: number }[] = [],
+  ): void {
+    const pools = water.filter((cell) => {
+      const p = toWorld(cell.c, cell.r);
+      return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
+    });
+    if (pools.length && rng.next() < 0.6) {
+      const cell = rng.pick(pools);
+      const p = toWorld(cell.c, cell.r);
+      this.add('lurker', p.x, p.y, rng.next());
+    }
     const far = cells.filter((cell) => {
       const p = toWorld(cell.c, cell.r);
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
@@ -267,7 +331,7 @@ export class EnemyManager {
     const def = ENEMIES[kind];
     const sprite = scene.physics.add.sprite(x, baseY, `en-${kind}`, 0);
     // Start each enemy on a different frame so they do not move in step.
-    const first = kind === 'spitter' ? 'idle' : 'move';
+    const first = kind === 'spitter' || kind === 'lurker' ? 'idle' : 'move';
     sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
     const scale = SHEETS[kind].scale ?? 1;
     const base = SHEETS[kind].base ?? sprite.height - 1;
@@ -275,10 +339,10 @@ export class EnemyManager {
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, base - def.body.h);
     if (def.speed === 0) body.setImmovable(true);
-    this.group.add(sprite);
+    (kind === 'drone' ? this.flyers : this.group).add(sprite);
     const h = sprite.height;
     this.host.track(sprite, base, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
-    const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 } };
+    const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 }, hidden: kind === 'lurker' };
     this.enemies.push(enemy);
     return enemy;
   }
@@ -301,10 +365,33 @@ export class EnemyManager {
         vx = e.knock.x;
         vy = e.knock.y;
       }
+      // Drones fly over everything but walls and the rock of an L's missing corner.
+      if (e.state.kind === 'drone' && !this.host.open(e.sprite.x + vx / 30, e.sprite.y + vy / 30)) {
+        const d = Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) || 1;
+        vx = ((feet.x - e.sprite.x) / d) * 40;
+        vy = ((feet.y - e.sprite.y) / d) * 40;
+      }
       e.sprite.setVelocity(vx, vy);
       if (Math.abs(vx) > 1) e.sprite.setFlipX(vx < 0);
       else if (step.anim === 'attack') e.sprite.setFlipX(feet.x < e.sprite.x);
       if (step.spit) this.fireSpore(e, step.spit);
+      if (step.fan) {
+        // Red bolts from the drone's eye.
+        const eyeY = e.sprite.y - e.sprite.displayHeight * 0.55;
+        const v = SPORE_SPEED * 1.15 * t;
+        for (const d of step.fan) this.launchSpore(e.sprite.x, eyeY, d.x * v, d.y * v, 0xff5a6a);
+      }
+      if (e.state.kind === 'lurker') {
+        const hidden = !!step.hidden;
+        if (hidden !== e.hidden) {
+          e.hidden = hidden;
+          (e.sprite.body as Phaser.Physics.Arcade.Body).enable = !hidden;
+          if (!hidden) this.host.shakeAdd(0.12);
+        }
+        if (step.strike && Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) <= LURKER_REACH * t) {
+          this.host.hurtPlayer(1, e.sprite.x, e.sprite.y);
+        }
+      }
       this.animate(e, step.anim, time);
       e.sprite.setDepth(this.host.depthAt(e.sprite.y));
     }
@@ -349,7 +436,7 @@ export class EnemyManager {
     void dir;
   }
 
-  private launchSpore(x: number, y: number, vx: number, vy: number): void {
+  private launchSpore(x: number, y: number, vx: number, vy: number, tint?: number): void {
     const spore = this.spores.get(x, y) as Phaser.Physics.Arcade.Image | null;
     if (!spore) return;
     spore.enableBody(true, x, y, true, true);
@@ -357,6 +444,8 @@ export class EnemyManager {
     spore.body!.setSize(6, 6);
     spore.setData('x0', x).setData('y0', y);
     spore.setVelocity(vx, vy);
+    if (tint === undefined) spore.clearTint();
+    else spore.setTint(tint);
     this.sporePuff.explode(5, x, y);
   }
 
@@ -382,6 +471,7 @@ export class EnemyManager {
       }
       for (const e of this.enemies) {
         const s = e.sprite;
+        if (e.hidden) continue;
         if (hits(shot, s.x, s.y, s.displayWidth * 0.8, s.displayHeight * 0.95)) {
           this.onShot(shot, e);
           break;
@@ -409,7 +499,17 @@ export class EnemyManager {
   private kill(e: Enemy): void {
     const { sprite } = e;
     const kind = e.state.kind;
-    (kind === 'spitter' ? this.sporePuff : this.goo).explode(kind === 'miner' ? 28 : 18, sprite.x, sprite.y - sprite.displayHeight / 2);
+    (kind === 'spitter' || kind === 'bloater' ? this.sporePuff : this.goo).explode(kind === 'miner' ? 28 : 18, sprite.x, sprite.y - sprite.displayHeight / 2);
+    if (kind === 'bloater') {
+      // It bursts: a ring of spores, so it is best killed from afar.
+      const v = SPORE_SPEED * 0.8 * this.host.tile;
+      const y = sprite.y - sprite.displayHeight / 2;
+      for (let i = 0; i < BLOAT_RING; i++) {
+        const a = (i / BLOAT_RING) * Math.PI * 2 + 0.2;
+        this.launchSpore(sprite.x, y, Math.cos(a) * v, Math.sin(a) * v);
+      }
+      this.sporePuff.explode(30, sprite.x, y);
+    }
     this.host.shakeAdd(kind === 'miner' ? 0.3 : 0.18);
     this.host.untrack(sprite);
     this.enemies = this.enemies.filter((x) => x !== e);
