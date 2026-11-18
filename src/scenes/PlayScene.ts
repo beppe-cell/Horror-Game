@@ -18,8 +18,9 @@ import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
 import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
-import { ITEMS_KEY, itemTexture, makeItems2 } from '../render/itemIcons';
+import { ITEMS2_KEY, ITEMS_KEY, itemTexture, preloadItemArt } from '../render/itemIcons';
 import { ItemAuras } from '../render/ItemAuras';
+import { OVERLAY_BOXES } from '../render/overlayBoxes';
 import { shove, slide } from '../rules/slide';
 import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
@@ -265,7 +266,7 @@ export default class PlayScene extends Phaser.Scene {
     preloadPlayer(this);
     preloadBiome(this, CRASH_SITE);
     preloadEnemies(this);
-    this.load.spritesheet(ITEMS_KEY, 'sprites/items/items.png', { frameWidth: 42, frameHeight: 36 });
+    preloadItemArt(this);
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -296,7 +297,8 @@ export default class PlayScene extends Phaser.Scene {
 
     makePlaceholderArt(this);
     attachNormalMap(this, ITEMS_KEY);
-    makeItems2(this);
+    attachNormalMap(this, ITEMS2_KEY);
+    for (const key of Object.keys(OVERLAY_BOXES)) attachNormalMap(this, key);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
     paintFloor(this, 'room-floor', CRASH_SITE, size.cols, size.rows, new Rng(rng.int(0, 1e9)));
@@ -327,7 +329,7 @@ export default class PlayScene extends Phaser.Scene {
     // its top half: no gap, no floating.
     this.addCaster(this.player, PLAYER_SOLE_ROW, PLAYER_HEIGHT, 18, 1, 4.9);
     this.playerLight = this.lights.addLight(this.player.x, this.player.y, 190, 0xcfeeff, 1.2);
-    this.auras = new ItemAuras(this, this.player);
+    this.auras = new ItemAuras(this, this.player, () => this.facing);
     this.auras.sync(this.run.items);
 
     this.shots = this.physics.add.group({ defaultKey: 'px-bolt', maxSize: 40 });

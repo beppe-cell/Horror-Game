@@ -7,6 +7,79 @@
  */
 import Phaser from 'phaser';
 import { Aura, ITEMS, ItemId } from '../rules/items';
+import type { Dir4 } from '../rules/input';
+import { OVERLAY_BOXES } from './overlayBoxes';
+
+/**
+ * Where an add-on piece sits on the astronaut, for each view: offset from
+ * the sprite centre in the front, back and right-side views (null = not
+ * seen from there), its size on screen (longest side), and whether it is a back piece
+ * (drawn behind her when she faces the camera).
+ */
+interface Slot {
+  views: [[number, number] | null, [number, number] | null, [number, number] | null];
+  width: number;
+  back?: boolean;
+  /** Hidden by her body when seen from behind (drawn under the sprite). */
+  front?: boolean;
+}
+
+const SLOTS = {
+  back: { views: [[0, -4], [0, -2], [-6, -2]], width: 13, back: true },
+  lowerBack: { views: [[0, 4], [0, 4], [-6, 4]], width: 9, back: true },
+  blaster: { views: [[-9, 4], [9, 4], [10, 2]], width: 9 },
+  gun: { views: [[-9, 4], [9, 4], [10, 2]], width: 14 },
+  knees: { views: [[0, 13], [0, 13], [1, 13]], width: 14 },
+  feet: { views: [[0, 19], [0, 19], [1, 19]], width: 16 },
+  neck: { views: [[0, -5], [0, -5], [2, -5]], width: 9, front: true },
+  chest: { views: [[0, 0], [0, 0], [2, 0]], width: 13, front: true },
+  heart: { views: [[3, -1], null, [2, -1]], width: 8, front: true },
+  shoulderR: { views: [[-7, -6], [7, -6], [-2, -6]], width: 10 },
+  shoulderL: { views: [[7, -6], [-7, -6], [1, -6]], width: 9 },
+  hip: { views: [[5, 6], [-5, 6], [1, 6]], width: 6 },
+  visor: { views: [[-3, -12], null, [5, -12]], width: 6, front: true },
+  torso: { views: [[0, -3], [0, -3], [0, -3]], width: 24 },
+  arm: { views: [[-8, 1], [8, 1], [7, 1]], width: 12 },
+} satisfies Record<string, Slot>;
+
+/**
+ * Add-on art for each item: overlay sheet, row, and slot. Items left out
+ * (their Gemini pieces came out unusable) show only their light effect.
+ */
+const OVERLAYS: Partial<Record<ItemId, { sheet: number; row: number; slot: keyof typeof SLOTS; width?: number }>> = {
+  'plasma-core': { sheet: 1, row: 0, slot: 'back' },
+  'rapid-capacitor': { sheet: 1, row: 1, slot: 'blaster', width: 6 },
+  'extended-barrel': { sheet: 1, row: 2, slot: 'blaster', width: 12 },
+  'leg-servos': { sheet: 1, row: 3, slot: 'knees' },
+  'captains-coin': { sheet: 2, row: 1, slot: 'neck' },
+  'armor-plate': { sheet: 2, row: 2, slot: 'chest' },
+  'shield-generator': { sheet: 2, row: 3, slot: 'shoulderL' },
+  'crystal-shard': { sheet: 3, row: 1, slot: 'shoulderR', width: 12 },
+  'twin-emitter': { sheet: 3, row: 2, slot: 'blaster' },
+  'overclock': { sheet: 4, row: 0, slot: 'gun' },
+  'nano-repair': { sheet: 4, row: 1, slot: 'hip' },
+  'grav-boots': { sheet: 4, row: 2, slot: 'feet' },
+  'dog-tag': { sheet: 4, row: 3, slot: 'neck' },
+  'long-scope': { sheet: 5, row: 0, slot: 'gun' },
+  'alien-heart': { sheet: 5, row: 1, slot: 'heart' },
+  'battery-pack': { sheet: 5, row: 2, slot: 'lowerBack' },
+  'reactive-armor': { sheet: 5, row: 3, slot: 'arm' },
+  'coolant-tank': { sheet: 6, row: 0, slot: 'back', width: 14 },
+  'spore-lens': { sheet: 6, row: 1, slot: 'visor' },
+  'brood-heart': { sheet: 6, row: 2, slot: 'heart', width: 9 },
+  'tri-emitter': { sheet: 6, row: 3, slot: 'blaster', width: 12 },
+  'queen-carapace': { sheet: 7, row: 0, slot: 'torso' },
+  'plasma-overdrive': { sheet: 7, row: 1, slot: 'arm', width: 14 },
+};
+
+/** A piece of art worn by the astronaut, picked by the way she faces. */
+interface Piece {
+  key: string;
+  row: number;
+  slot: Slot;
+  width: number;
+  img: Phaser.GameObjects.Image;
+}
 
 interface Effect {
   aura: Aura;
@@ -21,11 +94,13 @@ interface Effect {
 
 export class ItemAuras {
   private effects: Effect[] = [];
+  private pieces: Piece[] = [];
   private shown: string[] = [];
 
   constructor(
     private scene: Phaser.Scene,
     private player: Phaser.Physics.Arcade.Sprite,
+    private facing: () => Dir4,
   ) {}
 
   /** Rebuilds the effects for the items carried (only when the list changed). */
@@ -40,6 +115,16 @@ export class ItemAuras {
       e.ghost?.destroy();
     }
     this.effects = [];
+    this.pieces.forEach((p) => p.img.destroy());
+    this.pieces = [];
+    for (const id of items) {
+      const o = OVERLAYS[id];
+      const key = o && `overlay-${o.sheet}`;
+      if (!o || !key || !this.scene.textures.exists(key)) continue;
+      const slot: Slot = SLOTS[o.slot];
+      const img = this.scene.add.image(0, 0, key, o.row * 3).setLighting(true);
+      this.pieces.push({ key, row: o.row, slot, width: o.width ?? slot.width, img });
+    }
     const count: Record<string, number> = {};
     for (const id of items) {
       const aura = ITEMS[id].aura;
@@ -104,9 +189,45 @@ export class ItemAuras {
     return e;
   }
 
+  /**
+   * Puts each worn piece on its slot for the view she is seen from (front,
+   * back or side, mirrored when she faces left), scaled to the slot.
+   */
+  private placePieces(): void {
+    const p = this.player;
+    const facing = this.facing();
+    const view = facing === 'down' ? 0 : facing === 'up' ? 1 : 2;
+    const mirror = facing === 'left' ? -1 : 1;
+    for (const piece of this.pieces) {
+      const off = piece.slot.views[view];
+      const frame = piece.row * 3 + view;
+      const box = OVERLAY_BOXES[piece.key]?.boxes[frame];
+      if (!off || !box || !p.visible) {
+        piece.img.setVisible(false);
+        continue;
+      }
+      const sheet = OVERLAY_BOXES[piece.key];
+      // Scaled on its longest side, so a long thin piece seen end-on is not blown up.
+      const scale = piece.width / Math.max(4, box[2] - box[0], box[3] - box[1]);
+      piece.img
+        .setVisible(true)
+        .setFrame(frame)
+        .setOrigin((box[0] + box[2]) / 2 / sheet.w, (box[1] + box[3]) / 2 / sheet.h)
+        .setScale(scale)
+        .setFlipX(mirror < 0)
+        .setPosition(p.x + off[0] * mirror, p.y + off[1])
+        .setAlpha(p.alpha);
+      // Back pieces go behind her when she faces the camera or turns aside;
+      // front pieces go behind her when she turns her back.
+      const behind = (piece.slot.back && view !== 1) || (piece.slot.front && view === 1);
+      piece.img.setDepth(p.depth + (behind ? -0.004 : 0.004));
+    }
+  }
+
   /** Moves every effect with the astronaut; `moving` turns the feet trails on. */
   update(time: number, moving: boolean): void {
     const p = this.player;
+    this.placePieces();
     const chestY = p.y + 4;
     const feetY = p.y + 20;
     const helmetY = p.y - 18;
