@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import PlayScene from './scenes/PlayScene';
 import HudScene from './scenes/HudScene';
 import { pickQuality } from './rules/view';
+import { AmbientMusic } from './audio/AmbientMusic';
 
 const params = new URLSearchParams(window.location.search);
 const seedFromUrl = params.get('seed') ?? undefined;
@@ -39,6 +40,20 @@ window.addEventListener(
   },
   { once: true },
 );
+
+// Soundtrack: browsers only allow sound after a gesture, so it starts on
+// the first tap or key press. M turns it on and off (so does the ♪ button).
+const music = new AmbientMusic();
+game.registry.set('music', music);
+const startMusic = () => music.start();
+window.addEventListener('pointerdown', startMusic, { once: true });
+window.addEventListener('keydown', (e) => {
+  music.start();
+  if (e.code === 'KeyM' && !e.repeat) {
+    music.toggle();
+    game.events.emit('music-toggled');
+  }
+});
 
 // Exposed for the smoke test and for debugging from the browser console.
 Object.assign(window, { game });
