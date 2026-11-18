@@ -17,7 +17,7 @@ import { createPlayerAnims, preloadPlayer } from '../render/playerSprites';
 import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
 import { ENERGY_CELL_FRAME, ITEMS, ItemId, PEDESTAL_FRAME, applyItemToHealth, energyDropChance, hasEffect, itemModifiers, pickItem } from '../rules/items';
-import { ITEMS_KEY, makeBossItemArt } from '../render/placeholderBossItems';
+import { attachNormalMap } from '../render/pixelArt';
 import { EnemyManager, preloadEnemies } from './Enemies';
 import type HudScene from './HudScene';
 
@@ -114,6 +114,9 @@ interface Pickup {
 }
 
 const BOSS_NAME = 'Madre della covata';
+/** Item sheet: 4x3 cells of 42x36, the pedestal standing on row 29 of its cell. */
+const ITEMS_KEY = 'items';
+const PEDESTAL_BASE_ROW = 29;
 
 export interface PlayData {
   seed?: string;
@@ -220,6 +223,7 @@ export default class PlayScene extends Phaser.Scene {
     preloadPlayer(this);
     preloadBiome(this, CRASH_SITE);
     preloadEnemies(this);
+    this.load.spritesheet(ITEMS_KEY, 'sprites/items/items.png', { frameWidth: 42, frameHeight: 36 });
   }
 
   /** Converts a stat in tiles to world pixels. */
@@ -241,7 +245,7 @@ export default class PlayScene extends Phaser.Scene {
     this.room = generateRoom(rng, sides.map((side) => SIDE_DOOR[side]), { rockCount, waterPools: rng.int(1, 2), poolSize: 12 });
 
     makePlaceholderArt(this);
-    makeBossItemArt(this);
+    attachNormalMap(this, ITEMS_KEY);
     createPlayerAnims(this);
     prepareBiome(this, CRASH_SITE);
     paintFloor(this, 'room-floor', CRASH_SITE, ROOM_COLS, ROOM_ROWS, new Rng(rng.int(0, 1e9)));
@@ -391,29 +395,33 @@ export default class PlayScene extends Phaser.Scene {
     const x = ROOM_X + 6.5 * TILE;
     const baseY = ROOM_Y + 4 * TILE - 4;
     const pedestal = this.physics.add.staticImage(x, baseY, ITEMS_KEY, PEDESTAL_FRAME);
-    pedestal.setOrigin(0.5, 1).setLighting(true).setDepth(depthAt(baseY));
+    pedestal.setOrigin(0.5, (PEDESTAL_BASE_ROW + 1) / pedestal.height).setLighting(true).setDepth(depthAt(baseY));
     const body = pedestal.body as Phaser.Physics.Arcade.StaticBody;
     body.updateFromGameObject();
-    body.setSize(22, 10).setOffset(5, 21);
+    body.setSize(30, 10).setOffset(6, PEDESTAL_BASE_ROW + 1 - 10);
     this.walls.add(pedestal);
-    this.reflectors.push({ obj: pedestal, baseRow: 31 });
-    this.addCaster(pedestal, 31, 18, 24, 0.9, 4.9);
+    this.reflectors.push({ obj: pedestal, baseRow: PEDESTAL_BASE_ROW });
+    this.addCaster(pedestal, PEDESTAL_BASE_ROW, 20, 36, 1.2, 4.9);
     if (this.run.taken.includes(this.here.id)) return;
     const id = pickItem(new Rng(seedFromString(`${this.seed}:${this.here.id}:item`)), this.run.items);
     if (!id) return;
-    this.addPickup(ITEMS[id].frame, x, baseY - 33, ITEMS[id].color, 26, () => {
+    this.addPickup(ITEMS[id].frame, x, baseY, 40, ITEMS[id].color, 28, () => {
       this.run.taken.push(this.here.id);
       this.takeItem(id);
       return true;
     });
   }
 
-  /** A floating, softly lit pickup at (x, y); `take` runs when the astronaut's feet come within `radius`. */
-  private addPickup(frame: number, x: number, y: number, color: number, radius: number, take: () => boolean): void {
-    const icon = this.add.image(x, y, ITEMS_KEY, frame).setLighting(true).setDepth(depthAt(y + 34) + 0.01);
+  /**
+   * A floating, softly lit pickup whose ground point is (x, groundY), drawn
+   * `lift` pixels above it; `take` runs when the astronaut's feet come within `radius`.
+   */
+  private addPickup(frame: number, x: number, groundY: number, lift: number, color: number, radius: number, take: () => boolean): void {
+    const y = groundY - lift;
+    const icon = this.add.image(x, y, ITEMS_KEY, frame).setLighting(true).setDepth(depthAt(groundY) + 0.01);
     this.tweens.add({ targets: icon, y: y - 3, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
     const light = this.lights.addLight(x, y, 70, color, 0.9);
-    this.pickups.push({ icon, light, x, y: y + 33, radius, take });
+    this.pickups.push({ icon, light, x, y: groundY, radius, take });
   }
 
   private updatePickups(): void {
@@ -443,7 +451,7 @@ export default class PlayScene extends Phaser.Scene {
   private maybeDropEnergy(): void {
     const rng = new Rng(seedFromString(`${this.seed}:${this.here.id}:drop`));
     if (rng.next() >= energyDropChance(this.stats.luck)) return;
-    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + 6.5 * TILE, ROOM_Y + 3.5 * TILE - 20, 0x39d0ff, 16, () => {
+    this.addPickup(ENERGY_CELL_FRAME, ROOM_X + 6.5 * TILE, ROOM_Y + 4 * TILE - 6, 14, 0x39d0ff, 16, () => {
       if (this.health.hp >= this.health.max) return false;
       this.health = heal(this.health, 1);
       this.hud()?.setHealth(cellIcons(this.health), this.health.shield);

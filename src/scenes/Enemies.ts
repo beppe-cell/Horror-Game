@@ -3,20 +3,22 @@ import { Rng } from '../rules/rng';
 import { ENEMIES, EnemyKind, EnemyState, SPORE_SPEED, newEnemy, stepEnemy } from '../rules/enemies';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
-import { BOSS_FRAME, BOSS_KEY, makeBossItemArt } from '../render/placeholderBossItems';
 
 /**
  * Gemini sprite sheets cleaned by `npm run enemies` (one strip per enemy,
  * frames in the order of the original grid, facing right). Frame numbers
  * pick the rows that worked best on each sheet.
  */
-const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
+const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: number; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
   crawler: {
-    w: 27,
-    h: 25,
+    w: 38,
+    h: 36,
+    // Leg tips on row 30; drawn a little big for a basic enemy.
+    base: 30,
+    scale: 0.8,
     anims: {
-      move: { frames: [0, 1, 2, 3, 4, 5], fps: 10, loop: true },
-      death: { frames: [32, 33, 34, 35], fps: 9, loop: false },
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 14, loop: true },
+      death: { frames: [14, 15, 16, 17], fps: 9, loop: false },
     },
   },
   spitter: {
@@ -43,6 +45,12 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; anims: R
 
 const animName = (kind: EnemyKind, anim: string) => `en-${kind}-${anim}`;
 
+const BOSS_KEY = 'boss-brood';
+/** Frame size of her sheet, and how much bigger she is drawn. */
+const BOSS_W = 30;
+const BOSS_H = 28;
+const BOSS_SCALE = 2;
+
 /** Brood Mother animations, by frame of her 6x4 sheet. */
 const BOSS_ANIMS: Record<string, { frames: number[]; fps: number; loop: boolean }> = {
   crawl: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
@@ -52,11 +60,10 @@ const BOSS_ANIMS: Record<string, { frames: number[]; fps: number; loop: boolean 
   brood: { frames: [18, 19, 20], fps: 4, loop: false },
   death: { frames: [21, 22, 23], fps: 4, loop: false },
 };
-/** Row of the boss frame her body rests on. */
-const BOSS_BASE_ROW = 90;
+/** Row of the boss frame her legs rest on. */
+const BOSS_BASE_ROW = 25;
 
 function createBossAnims(scene: Phaser.Scene): void {
-  makeBossItemArt(scene);
   attachNormalMap(scene, BOSS_KEY);
   for (const [name, a] of Object.entries(BOSS_ANIMS)) {
     const key = `boss-${name}`;
@@ -69,6 +76,7 @@ export function preloadEnemies(scene: Phaser.Scene): void {
   for (const [kind, sheet] of Object.entries(SHEETS)) {
     scene.load.spritesheet(`en-${kind}`, `sprites/enemies/${kind}.png`, { frameWidth: sheet.w, frameHeight: sheet.h });
   }
+  scene.load.spritesheet(BOSS_KEY, 'sprites/bosses/brood-mother.png', { frameWidth: BOSS_W, frameHeight: BOSS_H });
 }
 
 function createEnemyAnims(scene: Phaser.Scene): void {
@@ -222,15 +230,18 @@ export class EnemyManager {
   spawnBoss(x: number, baseY: number): void {
     const { scene } = this.host;
     const sprite = scene.physics.add.sprite(x, baseY, BOSS_KEY, 0);
-    sprite.setOrigin(0.5, (BOSS_BASE_ROW + 1) / BOSS_FRAME).setLighting(true).setDepth(this.host.depthAt(baseY));
+    sprite.setOrigin(0.5, (BOSS_BASE_ROW + 1) / BOSS_H).setScale(BOSS_SCALE).setLighting(true).setDepth(this.host.depthAt(baseY));
     sprite.play('boss-crawl');
     sprite.anims.timeScale = 0.3;
     const body = sprite.body as Phaser.Physics.Arcade.Body;
-    body.setSize(BOSS_BODY.w, BOSS_BODY.h).setOffset((BOSS_FRAME - BOSS_BODY.w) / 2, BOSS_BASE_ROW + 1 - BOSS_BODY.h);
+    // Body sizes are in frame pixels; Phaser scales them with the sprite.
+    const bw = BOSS_BODY.w / BOSS_SCALE;
+    const bh = BOSS_BODY.h / BOSS_SCALE;
+    body.setSize(bw, bh).setOffset((BOSS_W - bw) / 2, BOSS_BASE_ROW + 1 - bh);
     body.setImmovable(true);
     body.pushable = false;
     this.group.add(sprite);
-    this.host.track(sprite, BOSS_BASE_ROW, 56, 76);
+    this.host.track(sprite, BOSS_BASE_ROW, 46, 54);
     this.boss = { sprite, state: newBoss(scene.time.now), hp: BOSS_HP, flashUntil: 0, nextDirt: 0 };
   }
 
@@ -259,13 +270,14 @@ export class EnemyManager {
     const first = kind === 'spitter' ? 'idle' : 'move';
     sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
     const scale = SHEETS[kind].scale ?? 1;
-    sprite.setOrigin(0.5, 1).setScale(scale).setLighting(true).setDepth(this.host.depthAt(baseY));
+    const base = SHEETS[kind].base ?? sprite.height - 1;
+    sprite.setOrigin(0.5, (base + 1) / sprite.height).setScale(scale).setLighting(true).setDepth(this.host.depthAt(baseY));
     const body = sprite.body as Phaser.Physics.Arcade.Body;
-    body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, sprite.height - def.body.h - 1);
+    body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, base - def.body.h);
     if (def.speed === 0) body.setImmovable(true);
     this.group.add(sprite);
     const h = sprite.height;
-    this.host.track(sprite, h - 1, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
+    this.host.track(sprite, base, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
     const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 } };
     this.enemies.push(enemy);
     return enemy;
@@ -364,7 +376,7 @@ export class EnemyManager {
       const shot = child as Phaser.Physics.Arcade.Image;
       if (!shot.active || shot.getData('dropping')) continue;
       const b = this.boss;
-      if (b && b.sprite.visible && hits(shot, b.sprite.x, b.sprite.y, 72, 54)) {
+      if (b && b.sprite.visible && hits(shot, b.sprite.x, b.sprite.y, b.sprite.displayWidth * 0.8, b.sprite.displayHeight * 0.85)) {
         this.onBossShot(shot, b);
         continue;
       }

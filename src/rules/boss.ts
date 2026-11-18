@@ -9,7 +9,7 @@ import type { Vec2 } from './input';
 export const BOSS_HP = 160;
 export const BOSS_CONTACT_DAMAGE = 2;
 /** Hitbox at her feet, in pixels. */
-export const BOSS_BODY = { w: 58, h: 18 };
+export const BOSS_BODY = { w: 40, h: 12 };
 
 const SPEED = 0.85;
 const ENRAGED_SPEED = 1.25;
