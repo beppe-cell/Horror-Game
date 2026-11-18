@@ -30,8 +30,8 @@ export const COINS_KEY = 'coins';
 export const COIN_FRAME = { shard: 0, chip: 1, core: 2 } as const;
 
 /**
- * Stand-in coin art (16×16 frames) until the Gemini sheet arrives: a green
- * crystal shard (1), a blue alien token (5), a glowing red-gold core (10).
+ * Stand-in coin art (16×16 frames) until the Gemini sheet arrives: the same
+ * round alien coin with a glyph, in green (1), blue (5) and gold (10).
  */
 export function makeCoinArt(scene: Phaser.Scene): void {
   if (scene.textures.exists(COINS_KEY)) return;
@@ -41,29 +41,23 @@ export function makeCoinArt(scene: Phaser.Scene): void {
     ctx.fillStyle = c;
     ctx.fillRect(x, y, w, h);
   };
-  // Shard: a small green crystal.
-  px('#0b0d14', 6, 3, 4, 11);
-  px('#1f8a5a', 7, 4, 2, 9);
-  px('#4dffb0', 7, 4, 1, 6);
-  px('#0b0d14', 5, 6, 6, 5);
-  px('#1f8a5a', 6, 7, 4, 3);
-  px('#b8ffe0', 7, 5, 1, 2);
-  // Chip: a round blue token with a glyph.
-  const o = 16;
-  px('#0b0d14', o + 4, 3, 8, 10);
-  px('#0b0d14', o + 3, 4, 10, 8);
-  px('#2f6fd0', o + 4, 4, 8, 8);
-  px('#39d0ff', o + 5, 5, 6, 6);
-  px('#0b0d14', o + 7, 6, 2, 4);
-  px('#b8f1ff', o + 5, 5, 2, 1);
-  // Core: a red-gold orb.
-  const q = 32;
-  px('#0b0d14', q + 4, 2, 8, 12);
-  px('#0b0d14', q + 3, 3, 10, 10);
-  px('#b8862a', q + 4, 3, 8, 10);
-  px('#ffd34d', q + 5, 4, 6, 8);
-  px('#ff4a5a', q + 6, 6, 4, 4);
-  px('#ffffff', q + 6, 5, 2, 1);
+  const palettes = [
+    ['#1f8a5a', '#4dffb0', '#b8ffe0'],
+    ['#2f6fd0', '#39d0ff', '#b8f1ff'],
+    ['#b8862a', '#ffd34d', '#fff0b0'],
+  ];
+  palettes.forEach(([dark, mid, light], i) => {
+    const o = i * 16;
+    px('#0b0d14', o + 4, 3, 8, 10);
+    px('#0b0d14', o + 3, 4, 10, 8);
+    px(dark, o + 4, 4, 8, 8);
+    px(mid, o + 5, 5, 6, 6);
+    px(light, o + 5, 4, 3, 1);
+    // The alien glyph: three prongs.
+    px(dark, o + 7, 6, 2, 4);
+    px(dark, o + 6, 6, 1, 1);
+    px(dark, o + 9, 6, 1, 1);
+  });
   canvas.refresh();
   for (let i = 0; i < 3; i++) canvas.add(i, 0, i * 16, 0, 16, 16);
 }

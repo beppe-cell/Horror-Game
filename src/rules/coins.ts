@@ -1,6 +1,7 @@
 /**
  * Alien coins, the run's currency. A drop is always one coin; its kind sets
  * its value, so rarer kinds are worth more (like pennies, nickels and dimes).
+ * All kinds are the same coin in a different colour: green 1, blue 5, gold 10.
  */
 export type CoinKind = 'shard' | 'chip' | 'core';
 
@@ -8,9 +9,9 @@ export const COIN_VALUE: Record<CoinKind, number> = { shard: 1, chip: 5, core: 1
 
 /** Display names, for the pickup flash. */
 export const COIN_NAME: Record<CoinKind, string> = {
-  shard: 'Scheggia aliena',
-  chip: 'Gettone alieno',
-  core: 'Nucleo alieno',
+  shard: 'Moneta verde',
+  chip: 'Moneta blu',
+  core: "Moneta d'oro",
 };
 
 /** Which coin drops, from one roll in [0, 1): mostly shards, rarely a core. */

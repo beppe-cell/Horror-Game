@@ -2,11 +2,13 @@
 
 Nel gioco le monete e il negozio hanno per ora una grafica provvisoria. Questo prompt genera la versione definitiva.
 
-| Moneta | Valore | Aspetto |
+Le tre monete sono **la stessa moneta**: stessa forma, stesso glifo, stessa dimensione. Cambia solo il colore.
+
+| Moneta | Valore | Colore |
 |---|---|---|
-| Scheggia aliena | 1 | piccola scheggia di cristallo verde, la più comune |
-| Gettone alieno | 5 | gettone tondo blu con un glifo |
-| Nucleo alieno | 10 | sfera rossa e dorata che pulsa, rara |
+| Moneta verde | 1 | verde, la più comune |
+| Moneta blu | 5 | blu |
+| Moneta d'oro | 10 | oro, rara |
 
 ## Come usarlo
 
@@ -20,10 +22,10 @@ Pixel art sheet for a top-down 3/4 view sci-fi horror roguelite set in alien cav
 TRUE pixel art: each cell is exactly 32x32 pixels, upscaled 8x with crisp, square, equal-size pixels. No anti-aliasing, no blur, no gradients. Light from the top-left. 1-pixel dark outline #0b0d14. NO glow halo, NO ground shadow.
 
 LAYOUT: exactly 4 columns by 2 rows of equal square cells, separated only by empty magenta space. No lines, no borders, no labels, no text.
-Row 1, ALIEN COINS, small (about 12 pixels wide), centered in their cells:
-1. ALIEN SHARD (worth 1): a small jagged green crystal shard #4dffb0 #1f8a5a.
-2. ALIEN TOKEN (worth 5): a round blue alien token #39d0ff #2f6fd0 with a strange engraved glyph.
-3. ALIEN CORE (worth 10): a small glowing red-gold orb #ff4a5a #ffd34d in a thin gold setting.
+Row 1, ALIEN COINS: the SAME coin three times, identical in shape, size, outline, engraving and shading; ONLY the colour changes. A small round alien coin, about 12 pixels wide, slightly tilted, with a raised rim and a strange three-pronged alien glyph engraved in the middle, centered in its cell.
+1. GREEN coin (worth 1): #4dffb0 #1f8a5a, rim #b8ffe0.
+2. BLUE coin (worth 5): #39d0ff #2f6fd0, rim #b8f1ff.
+3. GOLD coin (worth 10): #ffd34d #b8862a, rim #fff0b0.
 4. empty magenta cell.
 Row 2, SHOP:
 5-6 (two cells wide, one object): a broken ship VENDING TERMINAL, about 40 pixels wide and 30 tall: a dark grey metal cabinet #4f5762 #2a3040 with a cracked green screen #4dffb0 showing an alien coin symbol, an orange hazard stripe #ff9a3c, a coin slot and a small tray. It stands on the bottom of its cells.

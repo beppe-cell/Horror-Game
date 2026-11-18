@@ -424,11 +424,12 @@ function drawStatIcon(g: Phaser.GameObjects.Graphics, icon: StatLine['icon'], x:
   const px = (color: number, rx: number, ry: number, w = 2, h = 2) => g.fillStyle(color, 1).fillRect(x + rx, y + ry, w, h);
   g.fillStyle(0x0b0d14, 0.6).fillRect(x - 1, y - 1, 16, 16);
   switch (icon) {
-    case 'coin': // a green alien crystal coin
-      px(0x0b0d14, 4, 2, 6, 11);
-      px(0x1f8a5a, 5, 3, 4, 9);
-      px(0x4dffb0, 5, 3, 2, 6);
-      px(0xb8ffe0, 5, 4, 1, 2);
+    case 'coin': // the round alien coin, in gold
+      px(0x0b0d14, 3, 2, 8, 10);
+      px(0x0b0d14, 2, 3, 10, 8);
+      px(0xb8862a, 3, 3, 8, 8);
+      px(0xffd34d, 4, 4, 6, 6);
+      px(0xb8862a, 6, 5, 2, 4);
       break;
     case 'speed': // a boot with speed lines
       px(0x7d8799, 6, 2, 4, 8);
