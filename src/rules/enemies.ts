@@ -1,10 +1,10 @@
 /**
- * Enemies of floor 1 and their behaviour, as pure state machines so they
+ * Enemies of floors 1 and 2 and their behaviour, as pure state machines so they
  * can be tested without Phaser. Distances are in tiles and times in ms.
  */
 import type { Vec2 } from './input';
 
-export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater';
+export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater' | 'worker' | 'cocoon' | 'guardian';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -24,7 +24,27 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   drone: { kind: 'drone', hp: 8, speed: 1.7, contactDamage: 1, body: { w: 14, h: 8 } },
   lurker: { kind: 'lurker', hp: 12, speed: 0, contactDamage: 1, body: { w: 22, h: 8 } },
   bloater: { kind: 'bloater', hp: 9, speed: 0.75, contactDamage: 1, body: { w: 18, h: 8 } },
+  worker: { kind: 'worker', hp: 6, speed: 2.3, contactDamage: 1, body: { w: 24, h: 14 } },
+  cocoon: { kind: 'cocoon', hp: 14, speed: 0, contactDamage: 1, body: { w: 30, h: 12 } },
+  guardian: { kind: 'guardian', hp: 20, speed: 0.8, contactDamage: 1, body: { w: 26, h: 12 } },
 };
+
+/** Worker: zig-zags in, then dives at the astronaut from close range. */
+export const DIVE_RANGE = 2.4;
+export const DIVE_WINDUP_MS = 420;
+export const DIVE_MS = 380;
+export const DIVE_SPEED = 5.5;
+export const DIVE_COOLDOWN_MS = 1100;
+/** Cocoon: hatches two larvae now and then, at most this many times. */
+export const HATCH_EVERY_MS = 4200;
+export const HATCH_WINDUP_MS = 800;
+export const HATCH_LARVAE = 2;
+export const HATCH_MAX = 2;
+/** Guardian: shots from the front bounce off its shield; it bashes from close by. */
+export const BASH_RANGE = 1.5;
+export const BASH_WINDUP_MS = 550;
+export const BASH_RECOVER_MS = 900;
+export const BASH_DAMAGE = 2;
 
 /** Drone: keeps this far from the astronaut, then fires a fan of three bolts. */
 export const DRONE_RANGE = 3.5;
@@ -64,11 +84,14 @@ export interface EnemyState {
   dir: Vec2;
   /** Per-enemy random value, 0..1: wobble and timing offsets. */
   seed: number;
+  /** Times the cocoon has hatched. */
+  hatched?: number;
 }
 
 export function newEnemy(kind: EnemyKind, now: number, seed: number): EnemyState {
   if (kind === 'lurker') return { kind, phase: 'hidden', until: now + WAKE_MS, dir: { x: 0, y: 0 }, seed };
-  const extra = kind === 'spitter' ? 600 + seed * 900 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
+  const extra =
+    kind === 'spitter' ? 600 + seed * 900 : kind === 'cocoon' ? 1200 + seed * 1500 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
   return { kind, phase: 'idle', until: now + WAKE_MS + extra, dir: { x: 0, y: 0 }, seed };
 }
 
@@ -84,6 +107,10 @@ export interface EnemyStep {
   hidden?: boolean;
   /** The lurker lashes out this step: it hurts the astronaut if within reach. */
   strike?: boolean;
+  /** The guardian slams its shield down this step: hurts within BASH_RANGE. */
+  bash?: boolean;
+  /** The cocoon releases this many larvae this step. */
+  hatch?: number;
   /** Which animation fits: moving, attacking or resting. */
   anim: 'move' | 'attack' | 'idle';
 }
@@ -109,7 +136,7 @@ function rotate(v: Vec2, a: number): Vec2 {
 export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number): EnemyStep {
   const def = ENEMIES[s.kind];
   const { dir, dist } = toward(self, player);
-  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater') {
+  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater' && s.kind !== 'cocoon') {
     return { state: s, velocity: STILL, anim: 'idle' };
   }
 
@@ -163,6 +190,56 @@ export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number):
       }
       return { state: { ...s, phase: 'chase' }, velocity: scale(dir, def.speed), anim: now > s.until - 500 ? 'attack' : 'move' };
     }
+    case 'worker': {
+      // Zig-zags in fast; close by it stops, rears up and dives in a straight line.
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: scale(s.dir, -0.4), anim: 'attack' };
+        return { state: { ...s, phase: 'dash', until: now + DIVE_MS }, velocity: scale(s.dir, DIVE_SPEED), anim: 'attack' };
+      }
+      if (s.phase === 'dash') {
+        if (now < s.until) return { state: s, velocity: scale(s.dir, DIVE_SPEED), anim: 'attack' };
+        return { state: { ...s, phase: 'recover', until: now + DIVE_COOLDOWN_MS }, velocity: STILL, anim: 'move' };
+      }
+      const ready = s.phase !== 'recover' || now >= s.until;
+      if (ready && dist <= DIVE_RANGE) {
+        return { state: { ...s, phase: 'windup', until: now + DIVE_WINDUP_MS, dir }, velocity: STILL, anim: 'attack' };
+      }
+      const zig = Math.sin(now / 160 + s.seed * 6) * 1.1;
+      const v = { x: dir.x - dir.y * zig, y: dir.y + dir.x * zig };
+      const len = Math.hypot(v.x, v.y) || 1;
+      const k = ready ? def.speed : def.speed * 0.6;
+      return { state: { ...s, phase: ready ? 'chase' : 'recover' }, velocity: { x: (v.x / len) * k, y: (v.y / len) * k }, anim: 'move' };
+    }
+    case 'cocoon': {
+      // Rooted; swells and splits open to release larvae, a couple of times.
+      const hatched = s.hatched ?? 0;
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return {
+          state: { ...s, phase: 'chase', until: now + HATCH_EVERY_MS, hatched: hatched + 1 },
+          velocity: STILL,
+          hatch: HATCH_LARVAE,
+          anim: 'attack',
+        };
+      }
+      if (now >= s.until && hatched < HATCH_MAX) {
+        return { state: { ...s, phase: 'windup', until: now + HATCH_WINDUP_MS }, velocity: STILL, anim: 'attack' };
+      }
+      return { state: s, velocity: STILL, anim: 'idle' };
+    }
+    case 'guardian': {
+      // Walks in behind its shield; close by it winds up and slams it down.
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return { state: { ...s, phase: 'recover', until: now + BASH_RECOVER_MS }, velocity: STILL, anim: 'attack', bash: true };
+      }
+      const ready = s.phase !== 'recover' || now >= s.until;
+      if (ready && dist <= BASH_RANGE) {
+        return { state: { ...s, phase: 'windup', until: now + BASH_WINDUP_MS, dir }, velocity: STILL, anim: 'attack' };
+      }
+      if (!ready) return { state: s, velocity: STILL, anim: 'idle' };
+      return { state: { ...s, phase: 'chase' }, velocity: scale(dir, def.speed), anim: 'move' };
+    }
     case 'miner': {
       if (s.phase === 'windup') {
         if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
@@ -181,7 +258,7 @@ export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number):
   }
 }
 
-/** How often each kind is picked for a room's roster. */
+/** How often each kind is picked for a room's roster, by floor. */
 export const SPAWN_WEIGHTS: readonly [EnemyKind, number][] = [
   ['crawler', 3],
   ['spitter', 1],
@@ -189,6 +266,15 @@ export const SPAWN_WEIGHTS: readonly [EnemyKind, number][] = [
   ['bloater', 1],
   ['miner', 1],
 ];
+/** The hive: its own enemies, with a few from the crash site mixed in. */
+export const HIVE_WEIGHTS: readonly [EnemyKind, number][] = [
+  ['worker', 3],
+  ['guardian', 2],
+  ['cocoon', 2],
+  ['crawler', 1],
+  ['spitter', 1],
+];
+export const weightsFor = (floor: number): readonly [EnemyKind, number][] => (floor >= 2 ? HIVE_WEIGHTS : SPAWN_WEIGHTS);
 
 /**
  * Most of one kind in a room: small, weak enemies come in groups, big ones
@@ -201,6 +287,9 @@ export const MAX_PER_ROOM: Record<EnemyKind, number> = {
   spitter: 2,
   miner: 2,
   lurker: 1,
+  worker: 4,
+  guardian: 2,
+  cocoon: 2,
 };
 
 interface RosterRng {
@@ -213,13 +302,18 @@ interface RosterRng {
  * lurker already in a pool, count towards the two), each up to its cap.
  * Aims for `target` enemies, but big kinds may leave the room with fewer.
  */
-export function roomRoster(rng: RosterRng, target: number, taken: readonly EnemyKind[] = []): EnemyKind[] {
+export function roomRoster(
+  rng: RosterRng,
+  target: number,
+  taken: readonly EnemyKind[] = [],
+  weights: readonly [EnemyKind, number][] = SPAWN_WEIGHTS,
+): EnemyKind[] {
   const kinds: EnemyKind[] = [];
   // Two kinds most of the time, one otherwise; always at least one besides what is already there.
   const free = Math.max(1, 2 - taken.length);
   const want = free >= 2 && rng.next() < 0.7 ? 2 : 1;
   for (let i = 0; i < want; i++) {
-    const pool = SPAWN_WEIGHTS.filter(([k]) => !kinds.includes(k));
+    const pool = weights.filter(([k]) => !kinds.includes(k));
     const total = pool.reduce((s, [, w]) => s + w, 0);
     let roll = rng.next() * total;
     kinds.push(pool.find(([, w]) => (roll -= w) < 0)?.[0] ?? pool[0][0]);
