@@ -5,7 +5,8 @@ import { Dir4, Vec2, followOrigin, stickToDir4, touchSide, virtualStick } from '
 const RADIUS_SHARE = 0.11;
 
 interface Stick {
-  pointerId: number | null;
+  /** Browser touch identifier of the finger holding it, or null. */
+  touchId: number | null;
   origin: Vec2;
   value: Vec2;
   base: Phaser.GameObjects.Arc;
@@ -18,6 +19,12 @@ interface Stick {
  * nearest of the 4 directions. The sticks appear where the finger lands and
  * stay hidden until the first touch, so desktop players never see them.
  * Lives in the HUD scene, so all coordinates are screen pixels.
+ *
+ * The sticks follow the browser's own touch events, finger by finger, not
+ * the game's pointers: walking into a new room rebuilds the play scene, and
+ * on phones the game's pointer state could lose a finger that was still on
+ * the glass, leaving the astronaut frozen until the finger was lifted. A
+ * finger the browser still reports down always keeps driving its stick.
  */
 export class TouchControls {
   /** True once any touch was seen; the scene then shows the sticks. */
@@ -27,67 +34,46 @@ export class TouchControls {
   private radius: number;
 
   constructor(private scene: Phaser.Scene) {
-    // Pointer 1 exists by default; three more allow moving and shooting at
-    // once even if a palm or a third finger rests on the screen.
-    scene.input.addPointer(3);
     this.radius = Math.min(scene.scale.width, scene.scale.height) * RADIUS_SHARE;
     this.move = this.makeStick(0x39d0ff);
     this.shoot = this.makeStick(0x7cf7d4);
 
-    const input = scene.input;
-    input.on(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
-    input.on(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
-    input.on(Phaser.Input.Events.POINTER_UP, this.onUp, this);
-    input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUp, this);
-    // A finger lifted during a resize (entering fullscreen, rotating) or
-    // while the page is hidden sends no "up": release both sticks then.
-    const releaseAll = () => this.releaseAll();
-    // Safety net straight from the browser: when no finger is left on the
-    // screen, nothing can still be held, whatever events went missing.
-    const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length === 0) this.releaseAll();
+    const onStart = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) this.press(t);
+      this.forgetLost(e);
     };
-    window.addEventListener('touchend', onTouchEnd);
-    window.addEventListener('touchcancel', onTouchEnd);
-    scene.scale.on(Phaser.Scale.Events.RESIZE, releaseAll);
-    scene.game.events.on(Phaser.Core.Events.BLUR, releaseAll);
+    const onMove = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) this.drag(t);
+      this.forgetLost(e);
+    };
+    const onEnd = (e: TouchEvent) => {
+      for (const t of Array.from(e.changedTouches)) this.lift(t.identifier);
+      this.forgetLost(e);
+    };
+    const opts: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener('touchstart', onStart, opts);
+    window.addEventListener('touchmove', onMove, opts);
+    window.addEventListener('touchend', onEnd, opts);
+    window.addEventListener('touchcancel', onEnd, opts);
+    // While the page is hidden no "up" can arrive: start clean on return.
+    const releaseAll = () => this.releaseAll();
     scene.game.events.on(Phaser.Core.Events.HIDDEN, releaseAll);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      scene.scale.off(Phaser.Scale.Events.RESIZE, releaseAll);
-      scene.game.events.off(Phaser.Core.Events.BLUR, releaseAll);
+      window.removeEventListener('touchstart', onStart, opts);
+      window.removeEventListener('touchmove', onMove, opts);
+      window.removeEventListener('touchend', onEnd, opts);
+      window.removeEventListener('touchcancel', onEnd, opts);
       scene.game.events.off(Phaser.Core.Events.HIDDEN, releaseAll);
-      window.removeEventListener('touchend', onTouchEnd);
-      window.removeEventListener('touchcancel', onTouchEnd);
-      input.off(Phaser.Input.Events.POINTER_DOWN, this.onDown, this);
-      input.off(Phaser.Input.Events.POINTER_MOVE, this.onMove, this);
-      input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this);
-      input.off(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUp, this);
     });
   }
 
-  /**
-   * Called every frame: a stick whose finger is no longer down (an "up"
-   * the browser never delivered) is released, so it cannot stay stuck.
-   */
-  update(): void {
-    for (const stick of [this.move, this.shoot]) {
-      if (stick.pointerId === null) continue;
-      const pointer = this.scene.input.manager.pointers.find((p) => p.id === stick.pointerId);
-      if (!pointer || !pointer.isDown) this.release(stick);
-    }
-  }
+  /** Kept for the HUD's frame loop; the browser's touch events do all the work. */
+  update(): void {}
 
-  /** Lets go of both sticks (used on load, resize and when the page is hidden). */
+  /** Lets go of both sticks (a fresh run, the pause screen). */
   releaseAll(): void {
     this.release(this.move);
     this.release(this.shoot);
-  }
-
-  private release(stick: Stick): void {
-    stick.pointerId = null;
-    stick.value = { x: 0, y: 0 };
-    stick.base.setVisible(false);
-    stick.knob.setVisible(false);
   }
 
   /** Movement vector, length 0 to 1. */
@@ -100,58 +86,75 @@ export class TouchControls {
     return stickToDir4(this.shoot.value.x, this.shoot.value.y);
   }
 
+  private release(stick: Stick): void {
+    stick.touchId = null;
+    stick.value = { x: 0, y: 0 };
+    stick.base.setVisible(false);
+    stick.knob.setVisible(false);
+  }
+
   private makeStick(color: number): Stick {
     const base = this.scene.add.circle(0, 0, this.radius, color, 0.12).setStrokeStyle(3, color, 0.5);
     const knob = this.scene.add.circle(0, 0, this.radius * 0.42, color, 0.45);
     for (const o of [base, knob]) o.setDepth(200).setScrollFactor(0).setVisible(false);
-    return { pointerId: null, origin: { x: 0, y: 0 }, value: { x: 0, y: 0 }, base, knob };
+    return { touchId: null, origin: { x: 0, y: 0 }, value: { x: 0, y: 0 }, base, knob };
   }
 
-  private stickFor(pointer: Phaser.Input.Pointer): Stick | null {
-    if (this.move.pointerId === pointer.id) return this.move;
-    if (this.shoot.pointerId === pointer.id) return this.shoot;
+  /** A browser touch in game (screen) pixels. */
+  private point(t: Touch): Vec2 {
+    const scale = this.scene.scale;
+    return { x: scale.transformX(t.pageX), y: scale.transformY(t.pageY) };
+  }
+
+  private stickOf(id: number): Stick | null {
+    if (this.move.touchId === id) return this.move;
+    if (this.shoot.touchId === id) return this.shoot;
     return null;
   }
 
-  private onDown(pointer: Phaser.Input.Pointer): void {
-    if (!pointer.wasTouch) return;
+  private press(t: Touch): void {
     this.used = true;
     this.radius = Math.min(this.scene.scale.width, this.scene.scale.height) * RADIUS_SHARE;
     for (const s of [this.move, this.shoot]) {
       s.base.setRadius(this.radius);
       s.knob.setRadius(this.radius * 0.42);
     }
-    const stick = touchSide(pointer.x, this.scene.scale.width) === 'move' ? this.move : this.shoot;
-    // A new finger on a side always takes it over: if the old finger's "up"
-    // was lost, the side would otherwise stay locked and ignore every touch.
-    stick.pointerId = pointer.id;
-    stick.origin = { x: pointer.x, y: pointer.y };
+    const p = this.point(t);
+    const stick = touchSide(p.x, this.scene.scale.width) === 'move' ? this.move : this.shoot;
+    // A new finger on a side always takes it over, so a side can never stay locked.
+    stick.touchId = t.identifier;
+    stick.origin = p;
     stick.value = { x: 0, y: 0 };
-    stick.base.setPosition(pointer.x, pointer.y).setVisible(true);
-    stick.knob.setPosition(pointer.x, pointer.y).setVisible(true);
+    stick.base.setPosition(p.x, p.y).setVisible(true);
+    stick.knob.setPosition(p.x, p.y).setVisible(true);
   }
 
-  private onMove(pointer: Phaser.Input.Pointer): void {
-    let stick = this.stickFor(pointer);
+  private drag(t: Touch): void {
+    let stick = this.stickOf(t.identifier);
     if (!stick) {
-      // A finger already down that no stick owns (its stick was reset, or
-      // its "down" came before the controls were ready): pick it up again.
-      if (!pointer.isDown || !pointer.wasTouch) return;
-      const side = touchSide(pointer.x, this.scene.scale.width) === 'move' ? this.move : this.shoot;
-      if (side.pointerId !== null) return;
-      this.onDown(pointer);
-      stick = this.stickFor(pointer);
-      if (!stick) return;
+      // A finger that was already down before the controls existed: pick it up if its side is free.
+      const side = touchSide(this.point(t).x, this.scene.scale.width) === 'move' ? this.move : this.shoot;
+      if (side.touchId !== null) return;
+      this.press(t);
+      stick = side;
     }
-    const finger = { x: pointer.x, y: pointer.y };
+    const finger = this.point(t);
     stick.origin = followOrigin(stick.origin, finger, this.radius);
     stick.base.setPosition(stick.origin.x, stick.origin.y);
     stick.value = virtualStick(stick.origin, finger, this.radius);
     stick.knob.setPosition(stick.origin.x + stick.value.x * this.radius, stick.origin.y + stick.value.y * this.radius);
   }
 
-  private onUp(pointer: Phaser.Input.Pointer): void {
-    const stick = this.stickFor(pointer);
+  private lift(id: number): void {
+    const stick = this.stickOf(id);
     if (stick) this.release(stick);
+  }
+
+  /** Releases any stick whose finger the browser no longer lists as touching. */
+  private forgetLost(e: TouchEvent): void {
+    const down = new Set(Array.from(e.touches).map((t) => t.identifier));
+    for (const stick of [this.move, this.shoot]) {
+      if (stick.touchId !== null && !down.has(stick.touchId)) this.release(stick);
+    }
   }
 }

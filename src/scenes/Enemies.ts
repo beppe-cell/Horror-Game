@@ -143,9 +143,9 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
   hunter: {
     w: 40,
     h: 45,
-    // Feet on row 44.
+    // Feet on row 44; about the astronaut's height.
     base: 44,
-    scale: 0.75,
+    scale: 1.05,
     anims: {
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 9, loop: true },
       attack: { frames: [6, 7, 8, 9, 10, 11], fps: 12, loop: false },
@@ -216,9 +216,9 @@ const KIT_SHEETS: Record<KitKind, { w: number; h: number; scale: number; base: n
   warlord: {
     w: 52,
     h: 53,
-    scale: 1.25,
+    // Bigger than the rival hunters it leads.
+    scale: 1.6,
     base: 51,
-    facesLeft: true,
     anims: {
       move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
       lunge: { frames: [6, 7, 8, 9, 10, 11], fps: 12, loop: false },
