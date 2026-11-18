@@ -4,7 +4,7 @@
  */
 import type { Vec2 } from './input';
 
-export type EnemyKind = 'crawler' | 'spitter' | 'miner';
+export type EnemyKind = 'crawler' | 'spitter' | 'miner' | 'drone' | 'lurker' | 'bloater';
 
 export interface EnemyDef {
   kind: EnemyKind;
@@ -21,7 +21,25 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   crawler: { kind: 'crawler', hp: 7, speed: 2.1, contactDamage: 1, body: { w: 18, h: 10 } },
   spitter: { kind: 'spitter', hp: 10, speed: 0, contactDamage: 1, body: { w: 20, h: 12 } },
   miner: { kind: 'miner', hp: 22, speed: 1.0, contactDamage: 2, body: { w: 16, h: 10 } },
+  drone: { kind: 'drone', hp: 8, speed: 1.7, contactDamage: 1, body: { w: 14, h: 8 } },
+  lurker: { kind: 'lurker', hp: 12, speed: 0, contactDamage: 1, body: { w: 22, h: 8 } },
+  bloater: { kind: 'bloater', hp: 9, speed: 0.75, contactDamage: 1, body: { w: 18, h: 8 } },
 };
+
+/** Drone: keeps this far from the astronaut, then fires a fan of three bolts. */
+export const DRONE_RANGE = 3.5;
+export const DRONE_FIRE_EVERY_MS = 2600;
+export const DRONE_WINDUP_MS = 600;
+export const DRONE_FAN = 0.35;
+/** Lurker: rises when the astronaut comes this close, strikes, then sinks. */
+export const LURKER_SENSE = 2.4;
+export const LURKER_RISE_MS = 450;
+export const LURKER_UP_MS = 1400;
+export const LURKER_REST_MS = 1600;
+export const LURKER_REACH = 1.4;
+/** Bloater: puffs a spore at the astronaut now and then; bursts into a ring when it dies. */
+export const BLOAT_PUFF_EVERY_MS = 3200;
+export const BLOAT_RING = 8;
 
 /** Spitter: time between spores and spore speed (tiles/s). */
 export const SPIT_EVERY_MS = 2200;
@@ -35,7 +53,7 @@ export const CHARGE_COOLDOWN_MS = 1400;
 /** Enemies stay still this long after the room starts, like waking up. */
 export const WAKE_MS = 1000;
 
-export type Phase = 'idle' | 'chase' | 'windup' | 'dash' | 'recover';
+export type Phase = 'idle' | 'chase' | 'windup' | 'dash' | 'recover' | 'hidden' | 'rise' | 'up' | 'sink';
 
 export interface EnemyState {
   kind: EnemyKind;
@@ -49,7 +67,8 @@ export interface EnemyState {
 }
 
 export function newEnemy(kind: EnemyKind, now: number, seed: number): EnemyState {
-  const extra = kind === 'spitter' ? 600 + seed * 900 : 0;
+  if (kind === 'lurker') return { kind, phase: 'hidden', until: now + WAKE_MS, dir: { x: 0, y: 0 }, seed };
+  const extra = kind === 'spitter' ? 600 + seed * 900 : kind === 'drone' || kind === 'bloater' ? seed * 1500 : 0;
   return { kind, phase: 'idle', until: now + WAKE_MS + extra, dir: { x: 0, y: 0 }, seed };
 }
 
@@ -59,6 +78,12 @@ export interface EnemyStep {
   velocity: Vec2;
   /** Direction to fire a spore in, if one is fired this step. */
   spit?: Vec2;
+  /** Several bolts at once (the drone's fan), as directions. */
+  fan?: Vec2[];
+  /** Under water: cannot be hit and does not hurt (the lurker). */
+  hidden?: boolean;
+  /** The lurker lashes out this step: it hurts the astronaut if within reach. */
+  strike?: boolean;
   /** Which animation fits: moving, attacking or resting. */
   anim: 'move' | 'attack' | 'idle';
 }
@@ -76,11 +101,15 @@ function scale(v: Vec2, k: number): Vec2 {
   return { x: v.x * k, y: v.y * k };
 }
 
+function rotate(v: Vec2, a: number): Vec2 {
+  return { x: v.x * Math.cos(a) - v.y * Math.sin(a), y: v.x * Math.sin(a) + v.y * Math.cos(a) };
+}
+
 /** Advances one enemy. Positions are in tiles. */
 export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number): EnemyStep {
   const def = ENEMIES[s.kind];
   const { dir, dist } = toward(self, player);
-  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter') {
+  if (s.phase === 'idle' && now < s.until && s.kind !== 'spitter' && s.kind !== 'drone' && s.kind !== 'bloater') {
     return { state: s, velocity: STILL, anim: 'idle' };
   }
 
@@ -94,6 +123,45 @@ export function stepEnemy(s: EnemyState, self: Vec2, player: Vec2, now: number):
     case 'spitter': {
       if (now < s.until) return { state: s, velocity: STILL, anim: now > s.until - 450 ? 'attack' : 'idle' };
       return { state: { ...s, phase: 'chase', until: now + SPIT_EVERY_MS }, velocity: STILL, spit: dir, anim: 'attack' };
+    }
+    case 'drone': {
+      // Drifts to keep its distance, circling a little, then stops and fires.
+      if (s.phase === 'windup') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        const fan = [-DRONE_FAN, 0, DRONE_FAN].map((a) => rotate(dir, a));
+        return { state: { ...s, phase: 'chase', until: now + DRONE_FIRE_EVERY_MS }, velocity: STILL, fan, anim: 'attack' };
+      }
+      if (s.phase !== 'idle' && now >= s.until) {
+        return { state: { ...s, phase: 'windup', until: now + DRONE_WINDUP_MS }, velocity: STILL, anim: 'attack' };
+      }
+      const away = dist < DRONE_RANGE - 0.5 ? -1 : dist > DRONE_RANGE + 0.5 ? 1 : 0;
+      const orbit = Math.sin(now / 900 + s.seed * 6) > 0 ? 1 : -1;
+      const v = { x: dir.x * away - dir.y * orbit * 0.6, y: dir.y * away + dir.x * orbit * 0.6 };
+      const len = Math.hypot(v.x, v.y) || 1;
+      const phase = s.phase === 'idle' && now >= s.until ? 'chase' : s.phase;
+      const until = phase !== s.phase ? now + DRONE_FIRE_EVERY_MS * 0.5 : s.until;
+      return { state: { ...s, phase, until }, velocity: scale({ x: v.x / len, y: v.y / len }, def.speed), anim: 'move' };
+    }
+    case 'lurker': {
+      // Hidden in its pool until the astronaut comes close; rises, lashes out once, sinks back.
+      if (s.phase === 'hidden') {
+        if (now >= s.until && dist <= LURKER_SENSE) return { state: { ...s, phase: 'rise', until: now + LURKER_RISE_MS }, velocity: STILL, anim: 'attack' };
+        return { state: s, velocity: STILL, anim: 'idle', hidden: true };
+      }
+      if (s.phase === 'rise') {
+        if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+        return { state: { ...s, phase: 'up', until: now + LURKER_UP_MS }, velocity: STILL, anim: 'attack', strike: dist <= LURKER_REACH };
+      }
+      if (now < s.until) return { state: s, velocity: STILL, anim: 'attack' };
+      return { state: { ...s, phase: 'hidden', until: now + LURKER_REST_MS }, velocity: STILL, anim: 'idle', hidden: true };
+    }
+    case 'bloater': {
+      // Floats slowly after the astronaut and puffs a spore now and then.
+      if (s.phase === 'idle' && now < s.until) return { state: s, velocity: scale(dir, def.speed * 0.5), anim: 'move' };
+      if (now >= s.until) {
+        return { state: { ...s, phase: 'chase', until: now + BLOAT_PUFF_EVERY_MS }, velocity: STILL, spit: dir, anim: 'attack' };
+      }
+      return { state: { ...s, phase: 'chase' }, velocity: scale(dir, def.speed), anim: now > s.until - 500 ? 'attack' : 'move' };
     }
     case 'miner': {
       if (s.phase === 'windup') {
