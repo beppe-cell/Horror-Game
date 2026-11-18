@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyDamage, cellIcons, newHealth } from '../src/rules/health';
+import { HURT_INVULNERABLE_MS, applyDamage, cellIcons, newHealth } from '../src/rules/health';
 import { CHARGE_SPEED, WAKE_MS, newEnemy, stepEnemy } from '../src/rules/enemies';
 
 describe('suit health', () => {
@@ -9,7 +9,10 @@ describe('suit health', () => {
     expect(r.health.hp).toBe(5);
     r = applyDamage(r.health, 1, 500);
     expect(r.took).toBe(false);
-    r = applyDamage(r.health, 2, 1200);
+    // Still immune just before the window ends, hurt again right after.
+    r = applyDamage(r.health, 1, HURT_INVULNERABLE_MS - 1);
+    expect(r.took).toBe(false);
+    r = applyDamage(r.health, 2, HURT_INVULNERABLE_MS + 1);
     expect(r.health.hp).toBe(3);
     expect(cellIcons(r.health)).toEqual([2, 1, 0]);
   });

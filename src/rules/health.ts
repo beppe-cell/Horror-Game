@@ -15,7 +15,7 @@ export interface Health {
 }
 
 /** Invulnerability after a hit, in milliseconds. */
-export const HURT_INVULNERABLE_MS = 1000;
+export const HURT_INVULNERABLE_MS = 1500;
 
 export function newHealth(cells: number): Health {
   return { hp: cells * 2, max: cells * 2, shield: 0, invulnerableUntil: 0 };

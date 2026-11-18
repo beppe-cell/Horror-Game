@@ -956,8 +956,12 @@ export default class PlayScene extends Phaser.Scene {
       this.hudSynced = true;
     }
     // Blink while invulnerable after a hit.
+    // While immune after a hit: a clear blink and a cold tint, so the
+    // player sees that nothing can hurt them for a moment.
     const blinking = !this.dead && time < this.health.invulnerableUntil;
-    this.player.setAlpha(blinking && Math.floor(time / 80) % 2 === 0 ? 0.35 : 1);
+    this.player.setAlpha(blinking && Math.floor(time / 70) % 2 === 0 ? 0.2 : 1);
+    if (blinking && time >= this.tintUntil) this.player.setTint(0xb8f1ff);
+    else if (!blinking && !this.tintUntil) this.player.clearTint();
     // Stand in front of props higher up the screen, behind the ones lower down.
     this.player.setDepth(depthAt(this.player.y - this.player.displayOriginY + PLAYER_SOLE_ROW));
     this.updateShots();
@@ -1071,7 +1075,7 @@ export default class PlayScene extends Phaser.Scene {
   /**
    * Damage to the suit: shield first, then integrity. A hit shakes the view,
    * pushes the astronaut away from the source, plays the hurt animation and
-   * gives a second of blinking invulnerability. At zero the astronaut dies.
+   * gives 1.5 s of blinking invulnerability. At zero the astronaut dies.
    */
   hurtPlayer(amount: number, fromX: number, fromY: number): void {
     if (this.dead || this.leaving) return;

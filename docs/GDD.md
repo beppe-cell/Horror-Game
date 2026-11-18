@@ -100,7 +100,7 @@ Logica in `src/rules/enemies.ts` (testata), gestione nel gioco in `src/scenes/En
 ### Salute e morte
 
 - La tuta parte con 3 celle (6 mezze celle); gli scudi temporanei assorbono i danni per primi (`src/rules/health.ts`, testato).
-- Dopo un colpo: 1 secondo di invulnerabilità (l'astronauta lampeggia), scossa, spinta lontano dalla fonte, animazione "colpito".
+- Dopo un colpo: 1,5 secondi di invulnerabilità (l'astronauta lampeggia forte con una tinta azzurra), scossa, spinta lontano dalla fonte, animazione "colpito".
 - A zero: animazione di morte, poi "Tuta compromessa" e si ricomincia con R o toccando lo schermo (nuova run, nuovo seed).
 - HUD in alto a sinistra: celle piene, mezze e vuote; gli scudi in bianco. Messaggio "Stanza ripulita" quando muore l'ultimo nemico.
 
