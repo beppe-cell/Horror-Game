@@ -156,7 +156,9 @@ interface Pickup {
   fixed?: boolean;
 }
 
-const BOSS_NAME = 'Madre della covata';
+/** Boss name by floor. */
+const BOSS_NAMES = ['Madre della covata', "Regina dell'alveare"];
+const bossName = (floor: number) => BOSS_NAMES[Math.min(BOSS_NAMES.length, Math.max(1, floor)) - 1];
 /** Item sheet: 4x3 cells of 42x36, the pedestal standing on row 29 of its cell. */
 const PEDESTAL_BASE_ROW = 29;
 /** Height of the pedestal's flat top above its base, in pixels. */
@@ -508,7 +510,7 @@ export default class PlayScene extends Phaser.Scene {
     });
     this.enemies.onCleared = () => {
       this.run.cleared.push(this.here.id);
-      this.hud()?.flash(this.here.kind === 'boss' ? `${BOSS_NAME} sconfitta` : 'Stanza ripulita');
+      this.hud()?.flash(this.here.kind === 'boss' ? `${bossName(this.run.floor ?? 1)} sconfitta` : 'Stanza ripulita');
       this.openDoors(true);
       this.syncMap();
       if (this.here.kind === 'normal') this.rollReward();
@@ -517,9 +519,10 @@ export default class PlayScene extends Phaser.Scene {
         this.time.delayedCall(1800, () => this.addTrapdoor(true));
       }
     };
-    // Deeper floors: tougher enemies until each floor has its own.
-    this.enemies.hpScale = 1 + 0.35 * ((this.run.floor ?? 1) - 1);
-    this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? BOSS_NAME : null, frac);
+    // Each floor has its own enemies; deeper ones are a little tougher too.
+    this.enemies.floor = this.run.floor ?? 1;
+    this.enemies.hpScale = 1 + 0.15 * ((this.run.floor ?? 1) - 1);
+    this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? bossName(this.run.floor ?? 1) : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
     const fights = !this.run.cleared.includes(this.here.id);
     const cellBase = (c: number, r: number) => ({ x: ROOM_X + c * TILE + TILE / 2, y: ROOM_Y + (r + 1) * TILE - 4 });
@@ -1256,7 +1259,7 @@ export default class PlayScene extends Phaser.Scene {
       this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
       this.syncStats();
       const bossFight = this.here.kind === 'boss' && this.enemies.alive > 0;
-      this.hud()!.setBoss(bossFight ? BOSS_NAME : null, 1);
+      this.hud()!.setBoss(bossFight ? bossName(this.run.floor ?? 1) : null, 1);
       this.syncMap();
       const title = this.run.from === undefined
         ? this.biome.title

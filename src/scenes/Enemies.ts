@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Rng } from '../rules/rng';
-import { BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy } from '../rules/enemies';
+import { BASH_DAMAGE, BASH_RANGE, BLOAT_RING, ENEMIES, EnemyKind, EnemyState, LURKER_REACH, SPORE_SPEED, WAKE_MS, newEnemy, roomRoster, stepEnemy, weightsFor } from '../rules/enemies';
+import { QUEEN_BODY, QUEEN_CONTACT_DAMAGE, QUEEN_HP, QUEEN_WAKE_MS, QueenState, SPIT_SPREAD, newQueen, stepQueen } from '../rules/queen';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERGE_DAMAGE, EMERGE_RADIUS, newBoss, stepBoss } from '../rules/boss';
 
@@ -9,7 +10,7 @@ import { BOSS_BODY, BOSS_CONTACT_DAMAGE, BOSS_HP, BOSS_WAKE_MS, BossState, EMERG
  * frames in the order of the original grid, facing right). Frame numbers
  * pick the rows that worked best on each sheet.
  */
-const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: number; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
+const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: number; facesLeft?: boolean; anims: Record<string, { frames: number[]; fps: number; loop: boolean }> }> = {
   crawler: {
     w: 38,
     h: 36,
@@ -77,6 +78,65 @@ const SHEETS: Record<EnemyKind, { w: number; h: number; scale?: number; base?: n
       death: { frames: [14, 15, 16, 17], fps: 10, loop: false },
     },
   },
+  worker: {
+    w: 43,
+    h: 69,
+    // Drawn big and facing left; it hovers about 6 px above the ground.
+    base: 68,
+    scale: 0.5,
+    facesLeft: true,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 16, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 14, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 9, loop: false },
+    },
+  },
+  cocoon: {
+    w: 40,
+    h: 61,
+    // Roots on row 60.
+    base: 60,
+    scale: 0.55,
+    anims: {
+      idle: { frames: [0, 1, 2, 3, 4, 5], fps: 5, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 7, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 8, loop: false },
+    },
+  },
+  guardian: {
+    w: 41,
+    h: 52,
+    // Feet on row 42.
+    base: 42,
+    scale: 0.75,
+    anims: {
+      move: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
+      attack: { frames: [6, 7, 8, 9, 10, 11], fps: 11, loop: false },
+      death: { frames: [14, 15, 16, 17], fps: 7, loop: false },
+    },
+  },
+};
+
+/** Faces a sprite left or right; sheets are drawn facing right unless `facesLeft`. */
+function face(sprite: Phaser.GameObjects.Sprite, kind: EnemyKind, left: boolean): void {
+  sprite.setFlipX(left !== !!SHEETS[kind].facesLeft);
+}
+/** True when the enemy looks left. */
+function looksLeft(sprite: Phaser.GameObjects.Sprite, kind: EnemyKind): boolean {
+  return sprite.flipX !== !!SHEETS[kind].facesLeft;
+}
+
+const QUEEN_KEY = 'boss-queen';
+const QUEEN_W = 49;
+const QUEEN_H = 53;
+const QUEEN_SCALE = 1.25;
+const QUEEN_BASE_ROW = 51;
+const QUEEN_ANIMS: Record<string, { frames: number[]; fps: number; loop: boolean }> = {
+  crawl: { frames: [0, 1, 2, 3, 4, 5], fps: 7, loop: true },
+  spit: { frames: [6, 7, 8, 9, 10, 11], fps: 9, loop: false },
+  summon: { frames: [12, 13, 14], fps: 4, loop: false },
+  charge: { frames: [15, 16, 17], fps: 8, loop: true },
+  death: { frames: [20, 21, 22, 23], fps: 5, loop: false },
 };
 
 const animName = (kind: EnemyKind, anim: string) => `en-${kind}-${anim}`;
@@ -100,6 +160,12 @@ const BOSS_ANIMS: Record<string, { frames: number[]; fps: number; loop: boolean 
 const BOSS_BASE_ROW = 25;
 
 function createBossAnims(scene: Phaser.Scene): void {
+  attachNormalMap(scene, QUEEN_KEY);
+  for (const [name, a] of Object.entries(QUEEN_ANIMS)) {
+    const key = `queen-${name}`;
+    if (scene.anims.exists(key)) continue;
+    scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(QUEEN_KEY, { frames: a.frames }), frameRate: a.fps, repeat: a.loop ? -1 : 0 });
+  }
   attachNormalMap(scene, BOSS_KEY);
   for (const [name, a] of Object.entries(BOSS_ANIMS)) {
     const key = `boss-${name}`;
@@ -113,6 +179,7 @@ export function preloadEnemies(scene: Phaser.Scene): void {
     scene.load.spritesheet(`en-${kind}`, `sprites/enemies/${kind}.png`, { frameWidth: sheet.w, frameHeight: sheet.h });
   }
   scene.load.spritesheet(BOSS_KEY, 'sprites/bosses/brood-mother.png', { frameWidth: BOSS_W, frameHeight: BOSS_H });
+  scene.load.spritesheet(QUEEN_KEY, 'sprites/bosses/queen.png', { frameWidth: QUEEN_W, frameHeight: QUEEN_H });
 }
 
 function createEnemyAnims(scene: Phaser.Scene): void {
@@ -169,6 +236,13 @@ interface Boss {
   burrowFrom?: { x: number; y: number };
 }
 
+interface Queen {
+  sprite: Phaser.Physics.Arcade.Sprite;
+  state: QueenState;
+  hp: number;
+  flashUntil: number;
+}
+
 interface Enemy {
   sprite: Phaser.Physics.Arcade.Sprite;
   state: EnemyState;
@@ -192,6 +266,10 @@ const SHOT_FLIGHT_HEIGHT = 16;
 export class EnemyManager {
   private enemies: Enemy[] = [];
   private boss?: Boss;
+  private queen?: Queen;
+  /** Which floor: picks the enemy mix. */
+  floor = 1;
+  private clank!: Phaser.GameObjects.Particles.ParticleEmitter;
   private dirt!: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Red cracking ring on the floor where the boss will burst out. */
   private warn?: Phaser.GameObjects.Graphics;
@@ -238,6 +316,16 @@ export class EnemyManager {
         emitting: false,
       })
       .setDepth(20);
+    this.clank = scene.add
+      .particles(0, 0, 'px-spark', {
+        lifespan: { min: 120, max: 260 },
+        speed: { min: 40, max: 120 },
+        scale: { start: 1.2, end: 0 },
+        tint: [0xffffff, 0xe8dcc8, 0xd8e04a],
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: false,
+      })
+      .setDepth(20);
     this.dirt = scene.add
       .particles(0, 0, 'px-spark', {
         lifespan: { min: 300, max: 650 },
@@ -255,6 +343,8 @@ export class EnemyManager {
     scene.physics.add.overlap(host.player, [this.group, this.flyers], (_p, sprite) => {
       const b = this.boss;
       if (b && sprite === b.sprite) host.hurtPlayer(BOSS_CONTACT_DAMAGE, b.sprite.x, b.sprite.y);
+      const q = this.queen;
+      if (q && sprite === q.sprite) host.hurtPlayer(QUEEN_CONTACT_DAMAGE, q.sprite.x, q.sprite.y);
       const e = this.find(sprite as Phaser.Physics.Arcade.Sprite);
       if (e && !e.hidden) host.hurtPlayer(ENEMIES[e.state.kind].contactDamage, e.sprite.x, e.sprite.y);
     });
@@ -276,21 +366,46 @@ export class EnemyManager {
       if (e.state.phase === 'idle' || e.state.phase === 'hidden') e.state = { ...e.state, until: Math.max(e.state.until, now + WAKE_MS) };
     }
     if (this.boss && this.boss.state.phase === 'wake') this.boss.state = { ...this.boss.state, until: now + BOSS_WAKE_MS };
+    if (this.queen && this.queen.state.phase === 'wake') this.queen.state = { ...this.queen.state, until: now + QUEEN_WAKE_MS };
   }
 
   /** Where the enemies that can be hit stand (feet), for homing bolts. */
   targets(): { x: number; y: number }[] {
     const list = this.enemies.filter((e) => !e.hidden).map((e) => ({ x: e.sprite.x, y: e.sprite.y }));
     if (this.boss?.sprite.visible) list.push({ x: this.boss.sprite.x, y: this.boss.sprite.y });
+    if (this.queen) list.push({ x: this.queen.sprite.x, y: this.queen.sprite.y });
     return list;
   }
 
   get alive(): number {
-    return this.enemies.length + (this.boss ? 1 : 0);
+    return this.enemies.length + (this.boss ? 1 : 0) + (this.queen ? 1 : 0);
   }
 
-  /** The Brood Mother, standing with her feet at (x, baseY). */
+  /** The floor's boss, standing with her feet at (x, baseY). */
   spawnBoss(x: number, baseY: number): void {
+    if (this.floor >= 2) this.spawnQueen(x, baseY);
+    else this.spawnBrood(x, baseY);
+  }
+
+  private spawnQueen(x: number, baseY: number): void {
+    const { scene } = this.host;
+    const sprite = scene.physics.add.sprite(x, baseY, QUEEN_KEY, 0);
+    sprite.setOrigin(0.5, (QUEEN_BASE_ROW + 1) / QUEEN_H).setScale(QUEEN_SCALE).setLighting(true).setDepth(this.host.depthAt(baseY));
+    sprite.play('queen-crawl');
+    sprite.anims.timeScale = 0.3;
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    const bw = QUEEN_BODY.w / QUEEN_SCALE;
+    const bh = QUEEN_BODY.h / QUEEN_SCALE;
+    body.setSize(bw, bh).setOffset((QUEEN_W - bw) / 2, QUEEN_BASE_ROW + 1 - bh);
+    body.setImmovable(true);
+    body.pushable = false;
+    this.group.add(sprite);
+    this.host.track(sprite, QUEEN_BASE_ROW, 58, 54);
+    this.queen = { sprite, state: newQueen(scene.time.now), hp: QUEEN_HP * this.hpScale, flashUntil: 0 };
+  }
+
+  /** The Brood Mother. */
+  private spawnBrood(x: number, baseY: number): void {
     const { scene } = this.host;
     const sprite = scene.physics.add.sprite(x, baseY, BOSS_KEY, 0);
     sprite.setOrigin(0.5, (BOSS_BASE_ROW + 1) / BOSS_H).setScale(BOSS_SCALE).setLighting(true).setDepth(this.host.depthAt(baseY));
@@ -336,7 +451,7 @@ export class EnemyManager {
       return Math.hypot(p.x - origin.x, p.y - origin.y) >= 4 * this.host.tile;
     });
     // At most two kinds per room; small ones in bigger groups, big ones in pairs.
-    const roster = roomRoster(rng, rng.int(3, 5) + extra, taken);
+    const roster = roomRoster(rng, rng.int(3, 5) + extra, taken, weightsFor(this.floor));
     for (const kind of roster) {
       if (!far.length) break;
       const cell = far.splice(rng.int(0, far.length - 1), 1)[0];
@@ -350,7 +465,7 @@ export class EnemyManager {
     const def = ENEMIES[kind];
     const sprite = scene.physics.add.sprite(x, baseY, `en-${kind}`, 0);
     // Start each enemy on a different frame so they do not move in step.
-    const first = kind === 'spitter' || kind === 'lurker' ? 'idle' : 'move';
+    const first = kind === 'spitter' || kind === 'lurker' || kind === 'cocoon' ? 'idle' : 'move';
     sprite.play({ key: animName(kind, first), startFrame: Math.floor(seed * SHEETS[kind].anims[first].frames.length) });
     const scale = SHEETS[kind].scale ?? 1;
     const base = SHEETS[kind].base ?? sprite.height - 1;
@@ -358,7 +473,7 @@ export class EnemyManager {
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     body.setSize(def.body.w, def.body.h).setOffset((sprite.width - def.body.w) / 2, base - def.body.h);
     if (def.speed === 0) body.setImmovable(true);
-    (kind === 'drone' ? this.flyers : this.group).add(sprite);
+    (kind === 'drone' || kind === 'worker' ? this.flyers : this.group).add(sprite);
     const h = sprite.height;
     this.host.track(sprite, base, Math.round(h * scale * 0.85), Math.round(sprite.width * scale * 0.8));
     const enemy = { sprite, state: newEnemy(kind, scene.time.now, seed), hp: def.hp * this.hpScale, flashUntil: 0, knockUntil: 0, knock: { x: 0, y: 0 }, hidden: kind === 'lurker' };
@@ -373,6 +488,7 @@ export class EnemyManager {
   update(time: number): void {
     this.checkShots();
     this.updateBoss(time);
+    this.updateQueen(time);
     const t = this.host.tile;
     const feet = this.host.playerFeet();
     for (const e of this.enemies) {
@@ -385,14 +501,23 @@ export class EnemyManager {
         vy = e.knock.y;
       }
       // Drones fly over everything but walls and the rock of an L's missing corner.
-      if (e.state.kind === 'drone' && !this.host.open(e.sprite.x + vx / 30, e.sprite.y + vy / 30)) {
+      if ((e.state.kind === 'drone' || e.state.kind === 'worker') && !this.host.open(e.sprite.x + vx / 30, e.sprite.y + vy / 30)) {
         const d = Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) || 1;
         vx = ((feet.x - e.sprite.x) / d) * 40;
         vy = ((feet.y - e.sprite.y) / d) * 40;
       }
       e.sprite.setVelocity(vx, vy);
-      if (Math.abs(vx) > 1) e.sprite.setFlipX(vx < 0);
-      else if (step.anim === 'attack') e.sprite.setFlipX(feet.x < e.sprite.x);
+      const kind = e.state.kind;
+      if (kind === 'cocoon') {
+        // Rooted: never turns.
+      } else if (Math.abs(vx) > 1) face(e.sprite, kind, vx < 0);
+      else if (step.anim === 'attack' || kind === 'guardian') face(e.sprite, kind, feet.x < e.sprite.x);
+      if (step.bash) {
+        this.dirt.explode(14, e.sprite.x + (looksLeft(e.sprite, kind) ? -12 : 12), e.sprite.y);
+        this.host.shakeAdd(0.2);
+        if (Math.hypot(feet.x - e.sprite.x, feet.y - e.sprite.y) <= BASH_RANGE * t) this.host.hurtPlayer(BASH_DAMAGE, e.sprite.x, e.sprite.y);
+      }
+      if (step.hatch) this.hatch(e, step.hatch);
       if (step.spit) this.fireSpore(e, step.spit);
       if (step.fan) {
         // Red bolts from the drone's eye.
@@ -419,6 +544,25 @@ export class EnemyManager {
       const s = child as Phaser.Physics.Arcade.Image;
       if (s.active && Math.hypot(s.x - (s.getData('x0') as number), s.y - (s.getData('y0') as number)) > 8 * t) this.popSpore(s);
     }
+  }
+
+  /** Larvae crawl out of a cocoon: small, weak crawlers. */
+  private hatch(e: Enemy, count: number): void {
+    const { x: bx, y: by, w: bw, h: bh } = this.host.bounds;
+    for (let i = 0; i < count; i++) {
+      const x = Phaser.Math.Clamp(e.sprite.x + (i === 0 ? -14 : 14), bx + 10, bx + bw - 10);
+      const y = Phaser.Math.Clamp(e.sprite.y + 6, by + 12, by + bh - 4);
+      this.addLarva(x, y);
+    }
+    this.goo.explode(14, e.sprite.x, e.sprite.y - e.sprite.displayHeight * 0.8);
+  }
+
+  private addLarva(x: number, y: number): void {
+    const larva = this.add('crawler', x, y, Math.random());
+    larva.sprite.setScale(0.55);
+    larva.hp = 3 * this.hpScale;
+    // Awake at once: they come out hungry.
+    larva.state = { ...larva.state, until: this.host.scene.time.now + 250 };
   }
 
   /** Sprite animation for the current behaviour, a red telegraph before attacks, a white flash when hit. */
@@ -488,6 +632,11 @@ export class EnemyManager {
         this.onBossShot(shot, b);
         continue;
       }
+      const q = this.queen;
+      if (q && hits(shot, q.sprite.x, q.sprite.y, q.sprite.displayWidth * 0.75, q.sprite.displayHeight * 0.85)) {
+        this.onQueenShot(shot, q);
+        continue;
+      }
       for (const e of this.enemies) {
         const s = e.sprite;
         if (e.hidden) continue;
@@ -504,6 +653,15 @@ export class EnemyManager {
     if (this.alreadyHit(shot, e)) return;
     const v = shot.body!.velocity;
     const len = Math.hypot(v.x, v.y) || 1;
+    if (e.state.kind === 'guardian') {
+      // Its shield covers the front: shots flying into its face bounce off.
+      const fx = looksLeft(e.sprite, 'guardian') ? -1 : 1;
+      if (v.x * fx < 0 && Math.abs(v.x) > Math.abs(v.y) * 0.6) {
+        this.clank.explode(8, shot.x, shot.y);
+        this.host.shotHit(shot, shot.x, shot.y, false);
+        return;
+      }
+    }
     this.host.shotHit(shot, shot.x, shot.y, this.host.pierce());
     e.hp -= this.host.shotDamage();
     const now = this.host.scene.time.now;
@@ -541,7 +699,7 @@ export class EnemyManager {
     sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
       this.host.scene.tweens.add({ targets: sprite, alpha: 0, delay: 900, duration: 700, onComplete: () => sprite.destroy() });
     });
-    if (this.enemies.length === 0 && !this.boss) this.onCleared?.();
+    if (this.enemies.length === 0 && !this.boss && !this.queen) this.onCleared?.();
   }
 
   /** A piercing shot hits each enemy once; returns true if it already hit this one. */
@@ -678,6 +836,87 @@ export class EnemyManager {
       g.lineBetween(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len * 0.5);
     }
     if (Math.random() < 0.15 + 0.5 * p) this.dirt.explode(2, x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r * 0.5);
+  }
+
+  private onQueenShot(shot: Phaser.Physics.Arcade.Image, q: Queen): void {
+    if (this.alreadyHit(shot, q)) return;
+    this.host.shotHit(shot, shot.x, shot.y, this.host.pierce());
+    q.hp -= this.host.shotDamage();
+    q.flashUntil = this.host.scene.time.now + 70;
+    this.onBossHealth?.(Math.max(0, q.hp / (QUEEN_HP * this.hpScale)));
+    if (q.hp <= 0) this.killQueen(q);
+  }
+
+  /** Hive Queen behaviour: crawl, fan of resin, charge, call the swarm. */
+  private updateQueen(time: number): void {
+    const q = this.queen;
+    if (!q) return;
+    const t = this.host.tile;
+    const s = q.sprite;
+    const feet = this.host.playerFeet();
+    const before = q.state.phase;
+    const step = stepQueen(q.state, { x: s.x / t, y: s.y / t }, { x: feet.x / t, y: feet.y / t }, time, q.hp / (QUEEN_HP * this.hpScale), this.enemies.length);
+    q.state = step.state;
+    s.setVelocity(step.velocity.x * t, step.velocity.y * t);
+    if (q.state.phase === 'charge') {
+      if (Math.random() < 0.35) this.dirt.explode(3, s.x, s.y);
+      if (Math.abs(step.velocity.x) > 0.1) s.setFlipX(step.velocity.x < 0);
+    } else s.setFlipX(feet.x < s.x);
+    if (q.state.phase !== before) {
+      const anim = { wake: 'crawl', crawl: 'crawl', spit: 'spit', aim: 'charge', charge: 'charge', summon: 'summon', recover: 'crawl' }[q.state.phase];
+      s.play(`queen-${anim}`);
+      s.anims.timeScale = q.state.phase === 'recover' || q.state.phase === 'aim' ? 0.3 : 1;
+      if (q.state.phase === 'charge') this.host.shakeAdd(0.3);
+    }
+    if (step.fan && step.aim) {
+      // Amber resin blobs from her mouth, fanned around the astronaut.
+      const v = SPORE_SPEED * 0.9 * t;
+      const mouthX = s.x + (s.flipX ? -18 : 18);
+      const mouthY = s.y - s.displayHeight * 0.6;
+      const base = Math.atan2(feet.y - 14 - mouthY, feet.x - mouthX);
+      for (let i = 0; i < step.fan; i++) {
+        const a = base + (i - (step.fan - 1) / 2) * SPIT_SPREAD;
+        this.launchSpore(mouthX, mouthY, Math.cos(a) * v, Math.sin(a) * v, 0xffb040);
+      }
+      this.host.shakeAdd(0.2);
+    }
+    if (step.swarm) {
+      const { x: bx, y: by, w: bw, h: bh } = this.host.bounds;
+      for (let i = 0; i < step.swarm; i++) {
+        const a = (i / step.swarm) * Math.PI * 2 + Math.random();
+        const x = Phaser.Math.Clamp(s.x + Math.cos(a) * 40, bx + 12, bx + bw - 12);
+        const y = Phaser.Math.Clamp(s.y + Math.sin(a) * 26, by + 14, by + bh - 4);
+        const w = this.add('worker', x, y, Math.random());
+        w.state = { ...w.state, until: time + 300 };
+        this.sporePuff.explode(12, x, y - 12);
+      }
+      this.host.shakeAdd(0.25);
+    }
+    const windup = q.state.phase === 'spit' || q.state.phase === 'aim' || q.state.phase === 'summon';
+    if (time < q.flashUntil) s.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else if (windup) {
+      const k = 0.5 + 0.5 * Math.sin(time / 45);
+      const g = Math.round(255 - 140 * k);
+      s.setTint((255 << 16) | (g << 8) | g).setTintMode(Phaser.TintModes.MULTIPLY);
+    } else s.clearTint();
+    s.setDepth(this.host.depthAt(s.y));
+  }
+
+  private killQueen(q: Queen): void {
+    // Her swarm dies with her.
+    for (const e of [...this.enemies]) this.kill(e);
+    this.queen = undefined;
+    const s = q.sprite;
+    s.clearTint().setVelocity(0, 0);
+    s.disableBody(true, false);
+    s.anims.timeScale = 1;
+    s.play('queen-death');
+    s.setDepth(this.host.depthAt(s.y) - 0.02);
+    this.goo.explode(60, s.x, s.y - 30);
+    this.host.shakeAdd(0.9);
+    this.host.untrack(s);
+    this.onBossHealth?.(0);
+    this.onCleared?.();
   }
 
   private killBoss(b: Boss): void {
