@@ -322,20 +322,21 @@ export const HIVE_WEIGHTS: readonly [EnemyKind, number][] = [
   ['slime', 2],
   ['jelly', 2],
 ];
+/** Every kind a room can be dealt (the lurker only comes in pools). */
+export const ALL_KINDS: readonly EnemyKind[] = ['crawler', 'spitter', 'drone', 'bloater', 'miner', 'worker', 'guardian', 'cocoon', 'slime', 'jelly'];
+
 /**
- * The crystal caves: until their own enemies are drawn, a mix of the
- * toughest from the floors above.
+ * Enemies are not tied to floors: any kind can turn up anywhere. The first
+ * two floors mostly hold their own kinds with the others mixed in now and
+ * then; deeper floors deal every kind evenly.
  */
-export const CRYSTAL_WEIGHTS: readonly [EnemyKind, number][] = [
-  ['jelly', 2],
-  ['slime', 2],
-  ['guardian', 2],
-  ['drone', 2],
-  ['miner', 1],
-  ['worker', 2],
-];
-export const weightsFor = (floor: number): readonly [EnemyKind, number][] =>
-  floor >= 3 ? CRYSTAL_WEIGHTS : floor === 2 ? HIVE_WEIGHTS : SPAWN_WEIGHTS;
+export function weightsFor(floor: number): readonly [EnemyKind, number][] {
+  const home = floor === 1 ? SPAWN_WEIGHTS : floor === 2 ? HIVE_WEIGHTS : [];
+  return ALL_KINDS.map((k) => {
+    const own = home.find(([h]) => h === k);
+    return [k, own ? own[1] * 3 : home.length ? 0.6 : 1] as [EnemyKind, number];
+  });
+}
 
 /**
  * Most of one kind in a room: small, weak enemies come in groups, big ones

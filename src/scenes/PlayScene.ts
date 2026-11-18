@@ -18,6 +18,7 @@ import { PropEffects } from '../render/PropEffects';
 import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health';
 import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, itemQuality, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
+import { BOSS_NAMES, bossFor } from '../rules/bosses';
 import { COIN_NAME, COIN_VALUE, CoinKind, PROP_COIN_CHANCE, PROP_HP, energyPrice, itemPrice, rollCoin } from '../rules/coins';
 import { COINS_KEY, COIN_FRAME, ITEMS2_KEY, ITEMS_KEY, SHOP_PROPS, coinSpinKey, itemTexture, makeCoinAnims, preloadItemArt } from '../render/itemIcons';
 import { ItemAuras } from '../render/ItemAuras';
@@ -156,9 +157,9 @@ interface Pickup {
   fixed?: boolean;
 }
 
-/** Boss name by floor. */
-const BOSS_NAMES = ['Madre della covata', "Regina dell'alveare"];
-const bossName = (floor: number) => BOSS_NAMES[Math.min(BOSS_NAMES.length, Math.max(1, floor)) - 1];
+/** This run's boss on a floor: bosses are dealt out per run, not tied to floors. */
+const bossOf = (seed: string, floor: number) => bossFor(new Rng(seedFromString(`${seed}:boss`)).next(), floor);
+const bossName = (seed: string, floor: number) => BOSS_NAMES[bossOf(seed, floor)];
 /** Item sheet: 4x3 cells of 42x36, the pedestal standing on row 29 of its cell. */
 const PEDESTAL_BASE_ROW = 29;
 /** Height of the pedestal's flat top above its base, in pixels. */
@@ -317,7 +318,7 @@ export default class PlayScene extends Phaser.Scene {
   private addTrapdoor(fresh: boolean): void {
     const floorNo = this.run.floor ?? 1;
     if (floorNo >= BIOMES.length) {
-      if (fresh) this.hud()?.flash('Altri piani in arrivo');
+      if (fresh) this.hud()?.flash('Hai raggiunto il fondo: il nucleo è tuo');
       return;
     }
     const centre = centreTile(this.here.shape);
@@ -512,7 +513,7 @@ export default class PlayScene extends Phaser.Scene {
     });
     this.enemies.onCleared = () => {
       this.run.cleared.push(this.here.id);
-      this.hud()?.flash(this.here.kind === 'boss' ? `${bossName(this.run.floor ?? 1)} sconfitta` : 'Stanza ripulita');
+      this.hud()?.flash(this.here.kind === 'boss' ? `${bossName(this.seed, this.run.floor ?? 1)} sconfitta` : 'Stanza ripulita');
       this.openDoors(true);
       this.syncMap();
       if (this.here.kind === 'normal') this.rollReward();
@@ -523,8 +524,9 @@ export default class PlayScene extends Phaser.Scene {
     };
     // Each floor has its own enemies; deeper ones are a little tougher too.
     this.enemies.floor = this.run.floor ?? 1;
+    this.enemies.bossKind = bossOf(this.seed, this.run.floor ?? 1);
     this.enemies.hpScale = 1 + 0.15 * ((this.run.floor ?? 1) - 1);
-    this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? bossName(this.run.floor ?? 1) : null, frac);
+    this.enemies.onBossHealth = (frac) => this.hud()?.setBoss(frac > 0 ? bossName(this.seed, this.run.floor ?? 1) : null, frac);
     const enemyRng = new Rng(rng.int(0, 1e9));
     const fights = !this.run.cleared.includes(this.here.id);
     const cellBase = (c: number, r: number) => ({ x: ROOM_X + c * TILE + TILE / 2, y: ROOM_Y + (r + 1) * TILE - 4 });
@@ -1263,7 +1265,7 @@ export default class PlayScene extends Phaser.Scene {
       this.hud()!.setHealth(cellIcons(this.health), this.health.shield);
       this.syncStats();
       const bossFight = this.here.kind === 'boss' && this.enemies.alive > 0;
-      this.hud()!.setBoss(bossFight ? bossName(this.run.floor ?? 1) : null, 1);
+      this.hud()!.setBoss(bossFight ? bossName(this.seed, this.run.floor ?? 1) : null, 1);
       this.syncMap();
       const title = this.run.from === undefined
         ? this.biome.title
