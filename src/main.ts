@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import PlayScene from './scenes/PlayScene';
+import MenuScene from './scenes/MenuScene';
 import HudScene from './scenes/HudScene';
 import { pickQuality } from './rules/view';
 import { AmbientMusic } from './audio/AmbientMusic';
@@ -31,7 +32,16 @@ const shake = params.has('shake') && Number.isFinite(shakeParam) ? Math.min(1, M
 // `?floor=2` starts the run on a deeper floor, to try it without playing the first.
 const floorParam = Math.floor(Number(params.get('floor')));
 const floor = Number.isFinite(floorParam) && floorParam > 1 ? floorParam : undefined;
-game.scene.add('play', PlayScene, true, { seed: seedFromUrl?.toUpperCase(), quality, shake, floor });
+// The menu loads all the art first. A URL with a seed or a floor skips
+// straight into the run once loaded (for testing and shared seeds).
+game.scene.add('menu', MenuScene, true, {
+  seed: seedFromUrl?.toUpperCase(),
+  quality,
+  shake,
+  floor,
+  autostart: seedFromUrl !== undefined || floor !== undefined,
+});
+game.scene.add('play', PlayScene, false);
 game.scene.add('hud', HudScene, false);
 
 // On touch devices, the first tap asks for fullscreen. It can be refused

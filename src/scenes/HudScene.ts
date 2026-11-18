@@ -51,6 +51,7 @@ export default class HudScene extends Phaser.Scene {
   private musicButton!: Phaser.GameObjects.Text;
   private pauseButton!: Phaser.GameObjects.Text;
   private pauseVeil!: Phaser.GameObjects.Rectangle;
+  private menuButton!: Phaser.GameObjects.Text;
   private pauseText!: Phaser.GameObjects.Text;
   private itemIcons: Phaser.GameObjects.Image[] = [];
   private lastItems: { key: string; frame: number }[] = [];
@@ -133,6 +134,23 @@ export default class HudScene extends Phaser.Scene {
       .setDepth(110)
       .setVisible(false);
     this.pauseText.setShadow(0, 2, '#000000', 6, true, true);
+    // In pause: leave the run and go back to the title screen.
+    this.menuButton = this.add
+      .text(0, 0, '[ Torna al menu ]', { fontFamily: 'monospace', fontSize: '18px', color: '#ff9a8a' })
+      .setOrigin(0.5)
+      .setDepth(110)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.menuButton.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (_p: Phaser.Input.Pointer, _x: number, _y: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        this.quitToMenu();
+      },
+    );
+    this.input.keyboard?.on('keydown-Q', () => {
+      if (this.paused) this.quitToMenu();
+    });
     this.input.keyboard?.on('keydown-P', () => this.togglePause());
     this.input.keyboard?.on('keydown-ESC', () => this.togglePause());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.game.events.off('music-toggled', this.syncMusicButton, this));
@@ -157,6 +175,7 @@ export default class HudScene extends Phaser.Scene {
     this.setItems(this.lastItems);
     this.pauseVeil?.setSize(width, height);
     this.pauseText?.setPosition(width / 2, height / 2).setFontSize(Math.round(11 * this.ui));
+    this.menuButton?.setPosition(width / 2, height / 2 + 34 * this.ui).setFontSize(Math.round(9 * this.ui));
   }
 
   /** Boss health bar at the bottom of the screen; null hides it. */
@@ -287,7 +306,17 @@ export default class HudScene extends Phaser.Scene {
     }
     this.pauseVeil.setVisible(this.paused);
     this.pauseText.setVisible(this.paused);
+    this.menuButton.setVisible(this.paused);
     this.applyDim();
+  }
+
+  /** Ends the run and goes back to the title screen. */
+  private quitToMenu(): void {
+    const play = this.scene.get('play') as Phaser.Scene & { quality?: string; shakeStrength?: number };
+    this.paused = false;
+    this.touch?.releaseAll();
+    this.scene.stop('play');
+    this.scene.start('menu', { quality: play?.quality ?? 'high', shake: play?.shakeStrength ?? 1 });
   }
 
   /**
