@@ -19,8 +19,9 @@ import { Health, applyDamage, cellIcons, heal, newHealth } from '../rules/health
 import { ENERGY_CELL_FRAME, ENERGY_HEAL, ITEMS, ItemId, itemQuality, PEDESTAL_FRAME, applyItemToHealth, hasEffect, itemModifiers, pickItem, rollRoomReward } from '../rules/items';
 import { attachNormalMap } from '../render/pixelArt';
 import { BOSS_NAMES, bossFor } from '../rules/bosses';
+import { recordRunWon, runsWon } from '../progress';
 import { COIN_NAME, COIN_VALUE, CoinKind, PROP_COIN_CHANCE, PROP_HP, energyPrice, itemPrice, rollCoin } from '../rules/coins';
-import { COINS_KEY, COIN_FRAME, ITEMS2_KEY, ITEMS_KEY, SHOP_PROPS, coinSpinKey, itemTexture, makeCoinAnims, preloadItemArt } from '../render/itemIcons';
+import { COINS_KEY, COIN_FRAME, ICON_SHEETS, ITEMS2_KEY, ITEMS_KEY, SHOP_PROPS, coinSpinKey, itemTexture, makeCoinAnims, preloadItemArt } from '../render/itemIcons';
 import { ItemAuras } from '../render/ItemAuras';
 import { OVERLAY_BOXES } from '../render/overlayBoxes';
 import { shove, slide } from '../rules/slide';
@@ -348,7 +349,7 @@ export default class PlayScene extends Phaser.Scene {
       this.cameras.main.fadeOut(900, 0, 0, 0);
       this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
         this.scene.stop('hud');
-        this.scene.start('menu', { quality: this.quality, shake: this.shakeStrength, won: true });
+        this.scene.start('menu', { quality: this.quality, shake: this.shakeStrength, won: true, unlocked: recordRunWon() });
       });
       return;
     }
@@ -409,6 +410,7 @@ export default class PlayScene extends Phaser.Scene {
     makePlaceholderArt(this);
     attachNormalMap(this, ITEMS_KEY);
     attachNormalMap(this, ITEMS2_KEY);
+    for (const key of Object.keys(ICON_SHEETS)) attachNormalMap(this, key);
     attachNormalMap(this, COINS_KEY);
     for (const name of SHOP_PROPS) attachNormalMap(this, `shop-${name}`);
     makeCoinAnims(this);
@@ -702,7 +704,7 @@ export default class PlayScene extends Phaser.Scene {
     const baseY = ROOM_Y + (centre.row + 1) * TILE - 4;
     this.placePedestal(x, baseY);
     if (this.run.taken.includes(this.here.id)) return;
-    const id = pickItem(new Rng(seedFromString(`${this.roomSeed}:item`)), this.run.items);
+    const id = pickItem(new Rng(seedFromString(`${this.roomSeed}:item`)), this.run.items, 'normal', runsWon());
     if (!id) return;
     this.addPickup(itemTexture(id), x, baseY, 40, ITEMS[id].color, 28, PEDESTAL_TOP, () => {
       this.run.taken.push(this.here.id);
@@ -746,7 +748,7 @@ export default class PlayScene extends Phaser.Scene {
     const rng = new Rng(seedFromString(`${this.roomSeed}:shop`));
     const stock: ItemId[] = [];
     for (let i = 0; i < 3; i++) {
-      const id = pickItem(rng, [...this.run.items, ...stock]);
+      const id = pickItem(rng, [...this.run.items, ...stock], 'normal', runsWon());
       if (id) stock.push(id);
     }
     const bought = this.run.bought?.[this.here.id] ?? [];
@@ -912,6 +914,7 @@ export default class PlayScene extends Phaser.Scene {
     this.auras.sync(this.run.items);
     this.stats = computeStats(BASE_STATS, itemModifiers(this.run.items));
     this.health = applyItemToHealth(this.health, id);
+    if (ITEMS[id].coins) this.run.coins = (this.run.coins ?? 0) + ITEMS[id].coins;
     this.hud()?.setHealth(cellIcons(this.health), this.health.shield);
     this.syncStats();
     this.hud()?.flash(`${ITEMS[id].name}\n${ITEMS[id].hint}`);
@@ -926,7 +929,7 @@ export default class PlayScene extends Phaser.Scene {
   private rollReward(): void {
     const rng = new Rng(seedFromString(`${this.roomSeed}:drop`));
     const reward = rollRoomReward(rng.next(), this.stats.luck);
-    const item = reward === 'item' ? pickItem(rng, this.run.items) : undefined;
+    const item = reward === 'item' ? pickItem(rng, this.run.items, 'normal', runsWon()) : undefined;
     const drop: Drop | null = item ?? (reward === 'coin' ? `coin:${rollCoin(rng.next())}` : reward ? 'energy' : null);
     if (!drop) return;
     this.run.drops = { ...this.run.drops, [this.here.id]: drop };
@@ -939,7 +942,7 @@ export default class PlayScene extends Phaser.Scene {
    * walks out before it appears.
    */
   private bossReward(): void {
-    const item = pickItem(new Rng(seedFromString(`${this.roomSeed}:boss`)), this.run.items, 'boss');
+    const item = pickItem(new Rng(seedFromString(`${this.roomSeed}:boss`)), this.run.items, 'boss', runsWon());
     if (!item) return;
     this.run.drops = { ...this.run.drops, [this.here.id]: item };
     const room = this.here.id;

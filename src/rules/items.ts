@@ -10,6 +10,7 @@
 import type { Health } from './health';
 import type { Rng } from './rng';
 import type { Modifier } from './stats';
+import { NEW_ITEMS, NewItemId } from './newItems';
 
 export type ItemId =
   | 'plasma-core'
@@ -37,7 +38,8 @@ export type ItemId =
   | 'brood-heart'
   | 'tri-emitter'
   | 'queen-carapace'
-  | 'plasma-overdrive';
+  | 'plasma-overdrive'
+  | NewItemId;
 
 /**
  * A visual effect an item adds to the astronaut. All the effects of the
@@ -65,7 +67,7 @@ export interface ItemDef {
   /** One line on what it does. */
   hint: string;
   /** Item sheet the icon is on, and its cell. */
-  sheet?: 'items' | 'items2';
+  sheet?: 'items' | 'items2' | 'icons1' | 'icons2' | 'icons3' | 'icons4' | 'icons5';
   frame: number;
   /** Boss items are stronger and only drop from bosses. */
   boss?: boolean;
@@ -92,6 +94,14 @@ export interface ItemDef {
   retaliate?: boolean;
   /** Heals the suit fully on pickup. */
   fullHeal?: boolean;
+  /** Coins given on pickup. */
+  coins?: number;
+  /** Only bad effects (looks harmless). */
+  cursed?: boolean;
+  /** Shop quality, 1 to 4 (see itemQuality). */
+  quality?: 1 | 2 | 3 | 4;
+  /** Unlock batch: available once this many runs have been completed (0 or missing: always). */
+  tier?: number;
 }
 
 export const ITEMS: Record<ItemId, ItemDef> = {
@@ -121,6 +131,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   'tri-emitter': { id: 'tri-emitter', name: 'Triplo emettitore', hint: 'Tre colpi a ventaglio', sheet: 'items2', frame: 13, color: 0x7cf7d4, boss: true, aura: { kind: 'orbit', color: 0x7cf7d4 }, spread: true, modifiers: [{ stat: 'damage', mul: 0.85 }] },
   'queen-carapace': { id: 'queen-carapace', name: 'Carapace della regina', hint: '+2 celle, +2 celle di scudo', sheet: 'items2', frame: 14, color: 0x7e7896, boss: true, aura: { kind: 'bubble', color: 0xa9a3bf }, maxHealth: 4, shield: 4, fullHeal: true },
   'plasma-overdrive': { id: 'plasma-overdrive', name: 'Plasma in sovraccarico', hint: 'Cadenza ++, colpi cercatori', sheet: 'items2', frame: 15, color: 0x39d0ff, boss: true, aura: { kind: 'glow', color: 0xb8f1ff }, homing: true, modifiers: [{ stat: 'fireRate', mul: 1.5 }, { stat: 'shotSpeed', add: 3 }] },
+  ...NEW_ITEMS,
 };
 
 export const ITEM_IDS = Object.keys(ITEMS) as ItemId[];
@@ -131,10 +142,11 @@ export const ENERGY_CELL_FRAME = 11;
 
 /**
  * A random item the player does not have yet, from the normal pool or (for
- * a boss reward) the boss pool; undefined when the pool is used up.
+ * a boss reward) the boss pool, among those unlocked by `unlocked` completed
+ * runs; undefined when the pool is used up.
  */
-export function pickItem(rng: Rng, owned: readonly ItemId[], pool: 'normal' | 'boss' = 'normal'): ItemId | undefined {
-  const left = ITEM_IDS.filter((id) => !owned.includes(id) && !!ITEMS[id].boss === (pool === 'boss'));
+export function pickItem(rng: Rng, owned: readonly ItemId[], pool: 'normal' | 'boss' = 'normal', unlocked = 0): ItemId | undefined {
+  const left = ITEM_IDS.filter((id) => !owned.includes(id) && !!ITEMS[id].boss === (pool === 'boss') && (ITEMS[id].tier ?? 0) <= unlocked);
   return left.length ? rng.pick(left) : undefined;
 }
 
@@ -146,11 +158,14 @@ export function hasEffect(owned: readonly ItemId[], effect: 'bounce' | 'pierce' 
   return owned.some((id) => ITEMS[id][effect]);
 }
 
-/** The suit after picking up an item: more cells (filled) and shield. */
+/**
+ * The suit after picking up an item: more cells (filled) and shield. An item
+ * that takes cells away never leaves less than one cell, and never kills.
+ */
 export function applyItemToHealth(h: Health, id: ItemId): Health {
   const def = ITEMS[id];
-  const max = h.max + (def.maxHealth ?? 0);
-  const hp = def.fullHeal ? max : Math.min(max, h.hp + (def.maxHealth ?? 0));
+  const max = Math.max(2, h.max + (def.maxHealth ?? 0));
+  const hp = def.fullHeal ? max : Math.max(1, Math.min(max, h.hp + (def.maxHealth ?? 0)));
   return { ...h, max, hp, shield: h.shield + (def.shield ?? 0) };
 }
 
@@ -215,5 +230,5 @@ const QUALITY: Partial<Record<ItemId, 1 | 2 | 3 | 4>> = {
 };
 
 export function itemQuality(id: ItemId): 1 | 2 | 3 | 4 {
-  return ITEMS[id].boss ? 4 : (QUALITY[id] ?? 2);
+  return ITEMS[id].boss ? 4 : (ITEMS[id].quality ?? QUALITY[id] ?? 2);
 }

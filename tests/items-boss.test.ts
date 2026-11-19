@@ -10,8 +10,8 @@ describe('items', () => {
     const rng = new Rng(3);
     const normal = ITEM_IDS.filter((id) => !ITEMS[id].boss);
     const owned = normal.slice(0, normal.length - 1);
-    for (let i = 0; i < 20; i++) expect(pickItem(rng, owned)).toBe(normal[normal.length - 1]);
-    expect(pickItem(rng, normal)).toBeUndefined();
+    for (let i = 0; i < 20; i++) expect(pickItem(rng, owned, 'normal', 5)).toBe(normal[normal.length - 1]);
+    expect(pickItem(rng, normal, 'normal', 5)).toBeUndefined();
     for (let i = 0; i < 20; i++) expect(ITEMS[pickItem(rng, [], 'boss')!].boss).toBe(true);
   });
 

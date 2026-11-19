@@ -18,6 +18,8 @@ export interface MenuData {
   autostart?: boolean;
   /** The run just ended at the bottom of the last floor. */
   won?: boolean;
+  /** New items the completed run unlocked. */
+  unlocked?: number;
 }
 
 interface Settings {
@@ -213,7 +215,7 @@ export default class MenuScene extends Phaser.Scene {
     this.layer.add([title, subtitle]);
     if (this.data0.won) {
       const won = this.add
-        .text(0, 0, 'Run completata: hai raggiunto il fondo!', { fontFamily: 'monospace', fontSize: '18px', color: '#ffd34d' })
+        .text(0, 0, this.data0.unlocked ? `Run completata! Sbloccati ${this.data0.unlocked} nuovi oggetti` : 'Run completata: hai raggiunto il fondo!', { fontFamily: 'monospace', fontSize: '18px', color: '#ffd34d' })
         .setOrigin(0.5)
         .setName('won');
       this.layer.add(won);
