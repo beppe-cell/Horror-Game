@@ -40,6 +40,10 @@ const SLOTS = {
   visor: { views: [[-3, -12], null, [5, -12]], width: 6, front: true },
   torso: { views: [[0, -3], [0, -3], [0, -3]], width: 24 },
   arm: { views: [[-8, 1], [8, 1], [7, 1]], width: 12 },
+  /** The whole helmet: pieces drawn around it (monocle, goggles). */
+  helmet: { views: [[0, -12], [0, -12], [1, -12]], width: 15 },
+  /** Over the shoulders and down the back, behind her when she faces the camera. */
+  cloak: { views: [[0, 3], [0, 3], [-3, 3]], width: 22, back: true },
 } satisfies Record<string, Slot>;
 
 /**
@@ -70,6 +74,27 @@ const OVERLAYS: Partial<Record<ItemId, { sheet: number; row: number; slot: keyof
   'tri-emitter': { sheet: 6, row: 3, slot: 'blaster', width: 12 },
   'queen-carapace': { sheet: 7, row: 0, slot: 'torso' },
   'plasma-overdrive': { sheet: 7, row: 1, slot: 'arm', width: 14 },
+  // Second wave (overlay-8 … overlay-12 = "Pezzi fermi" 1 … 5).
+  'misaligned-cannon': { sheet: 8, row: 0, slot: 'gun', width: 15 },
+  'adrenaline-injector': { sheet: 8, row: 1, slot: 'arm', width: 7 },
+  'cracked-lens': { sheet: 8, row: 2, slot: 'helmet' },
+  'leaking-battery': { sheet: 8, row: 3, slot: 'lowerBack', width: 10 },
+  'bone-horn': { sheet: 9, row: 0, slot: 'shoulderR', width: 11 },
+  'stitched-heart': { sheet: 9, row: 1, slot: 'chest', width: 12 },
+  'cursed-coin': { sheet: 9, row: 2, slot: 'neck', width: 10 },
+  'skeletal-glove': { sheet: 9, row: 3, slot: 'blaster', width: 7 },
+  'night-visor': { sheet: 10, row: 0, slot: 'helmet', width: 16 },
+  'unstable-core': { sheet: 10, row: 1, slot: 'chest', width: 5 },
+  'crystal-rounds': { sheet: 10, row: 2, slot: 'hip', width: 10 },
+  'shadow-cloak': { sheet: 10, row: 3, slot: 'cloak' },
+  'release-valve': { sheet: 11, row: 0, slot: 'shoulderL', width: 10 },
+  'pulse-coil': { sheet: 11, row: 1, slot: 'blaster', width: 8 },
+  'split-prism': { sheet: 11, row: 2, slot: 'blaster', width: 5 },
+  'spore-vial': { sheet: 11, row: 3, slot: 'hip', width: 5 },
+  'gravity-anchor': { sheet: 12, row: 0, slot: 'lowerBack', width: 7 },
+  'alien-eye': { sheet: 12, row: 1, slot: 'shoulderL', width: 6 },
+  'red-serum': { sheet: 12, row: 2, slot: 'neck', width: 11 },
+  'resin-shell': { sheet: 12, row: 3, slot: 'back', width: 14 },
 };
 
 /** A piece of art worn by the astronaut, picked by the way she faces. */

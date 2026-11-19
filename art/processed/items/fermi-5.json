@@ -1,0 +1,10 @@
+{
+ "pixelSize": 7.5,
+ "frameWidth": 26,
+ "frameHeight": 33,
+ "columns": 3,
+ "rows": 4,
+ "empty": [
+  0
+ ]
+}
