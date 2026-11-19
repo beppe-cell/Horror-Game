@@ -32,31 +32,6 @@ export function stickToDir4(x: number, y: number, deadzone = 0.35): Dir4 | null 
 }
 
 /**
- * Tracks held shoot keys. While several are held, the most recently pressed
- * one wins; releasing it falls back to the previous one still held.
- */
-export class ShootKeys {
-  private held: Dir4[] = [];
-
-  press(dir: Dir4): void {
-    this.release(dir);
-    this.held.push(dir);
-  }
-
-  release(dir: Dir4): void {
-    this.held = this.held.filter((d) => d !== dir);
-  }
-
-  current(): Dir4 | null {
-    return this.held.length ? this.held[this.held.length - 1] : null;
-  }
-
-  clear(): void {
-    this.held = [];
-  }
-}
-
-/**
  * Value of a floating virtual stick: the offset of the finger from where it
  * first touched, divided by the stick radius and capped at length 1.
  */
@@ -86,4 +61,35 @@ export function followOrigin(origin: Vec2, finger: Vec2, radius: number): Vec2 {
 /** Which virtual stick a new touch belongs to: left half moves, right half shoots. */
 export function touchSide(x: number, screenWidth: number): 'move' | 'shoot' {
   return x < screenWidth / 2 ? 'move' : 'shoot';
+}
+
+/**
+ * Keys held down, by `KeyboardEvent.code`, in the order they were pressed.
+ * A key repeat counts as a press, so a key whose first press was missed
+ * (it went down while the scene was being rebuilt) is picked up again.
+ */
+export class HeldKeys {
+  private held: string[] = [];
+
+  down(code: string): void {
+    if (!this.held.includes(code)) this.held.push(code);
+  }
+
+  up(code: string): void {
+    this.held = this.held.filter((c) => c !== code);
+  }
+
+  clear(): void {
+    this.held = [];
+  }
+
+  isDown(code: string): boolean {
+    return this.held.includes(code);
+  }
+
+  /** The most recently pressed of `codes` still held, or null. */
+  last(codes: readonly string[]): string | null {
+    for (let i = this.held.length - 1; i >= 0; i--) if (codes.includes(this.held[i])) return this.held[i];
+    return null;
+  }
 }

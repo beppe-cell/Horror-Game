@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { Rng, newSeedString, seedFromString } from '../rules/rng';
 import { BASE_STATS, Stats, computeStats, fireCooldownMs } from '../rules/stats';
-import { DIR4_VECTORS, Dir4, ShootKeys, moveVector, stickToDir4 } from '../rules/input';
+import { DIR4_VECTORS, Dir4, moveVector, stickToDir4 } from '../rules/input';
+import { keys } from '../input/keyboard';
 import { RoomLayout, centreTile, doorTile, generateRoom, interiorSize, solidRects } from '../rules/room';
 import { DoorLink, FloorLayout, FloorRoom, doorLinks, generateFloor } from '../rules/floor';
 import { Quality, frameView } from '../rules/view';
@@ -89,6 +90,7 @@ const SHOOT_CODES: Record<string, Dir4> = {
   ArrowLeft: 'left',
   ArrowRight: 'right',
 };
+const SHOOT_KEYS = Object.keys(SHOOT_CODES);
 
 /** What carries over from room to room during one run. */
 export interface RunState {
@@ -188,8 +190,6 @@ export default class PlayScene extends Phaser.Scene {
   water!: Water;
   shotsFired = 0;
 
-  private shootKeys = new ShootKeys();
-  private moveKeys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>;
   private nextShotAt = 0;
   private nextStepRippleAt = 0;
   facing: Dir4 = 'down';
@@ -286,7 +286,6 @@ export default class PlayScene extends Phaser.Scene {
     this.impactLights = [];
     this.rings = [];
     this.stats = computeStats(BASE_STATS, itemModifiers(this.run.items));
-    this.shootKeys.clear();
     this.nextShotAt = 0;
     this.shotsFired = 0;
     this.shotLights = [];
@@ -343,7 +342,6 @@ export default class PlayScene extends Phaser.Scene {
     if (this.leaving || this.dead) return;
     this.leaving = true;
     this.player.setVelocity(0, 0);
-    this.shootKeys.clear();
     this.tweens.add({ targets: this.player, scale: 0.2, alpha: 0, duration: 400, ease: 'Quad.In' });
     if ((this.run.floor ?? 1) >= BIOMES.length) {
       this.cameras.main.fadeOut(900, 0, 0, 0);
@@ -675,6 +673,7 @@ export default class PlayScene extends Phaser.Scene {
       key(rightX - 21, top + 47, '', 'left');
       key(rightX, top + 47, '', 'down');
       key(rightX + 21, top + 47, '', 'right');
+      label(rightX, top + 70, 'o tieni premuto il mouse', 10);
     }
     // A little astronaut between them, with a dashed shot flying off.
     const cx = ROOM_X + 6.5 * TILE;
@@ -887,7 +886,6 @@ export default class PlayScene extends Phaser.Scene {
     // still on the stick, and releasing it would leave that touch ignored.
     if (this.run.from === undefined) {
       this.hud()?.touch.releaseAll();
-      this.shootKeys.clear();
       this.nextShotAt = time + 150;
     }
     this.enemies.rewake(time);
@@ -1164,7 +1162,6 @@ export default class PlayScene extends Phaser.Scene {
     if (this.leaving || this.dead) return;
     this.leaving = true;
     this.player.setVelocity(0, 0);
-    this.shootKeys.clear();
     const run: RunState = { ...this.run, room: link.to, from: this.here.id, health: this.health };
     this.cameras.main.fadeOut(160, 0, 0, 0);
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () =>
@@ -1313,27 +1310,11 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   private bindInput(): void {
-    const kb = this.input.keyboard!;
-    this.moveKeys = kb.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' }) as typeof this.moveKeys;
-    kb.addCapture('UP,DOWN,LEFT,RIGHT,SPACE');
-    const onDown = (e: KeyboardEvent) => {
-      const dir = SHOOT_CODES[e.code];
-      if (dir && !e.repeat) this.shootKeys.press(dir);
-    };
-    const onUp = (e: KeyboardEvent) => {
-      const dir = SHOOT_CODES[e.code];
-      if (dir) this.shootKeys.release(dir);
-    };
-    kb.on('keydown', onDown);
-    kb.on('keyup', onUp);
-    // Losing focus must not leave the player shooting forever.
-    const onBlur = () => this.shootKeys.clear();
-    this.game.events.on(Phaser.Core.Events.BLUR, onBlur);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      kb.off('keydown', onDown);
-      kb.off('keyup', onUp);
-      this.game.events.off(Phaser.Core.Events.BLUR, onBlur);
-    });
+    // Keys are read from the page-wide tracker (input/keyboard.ts); here the
+    // browser is only kept from scrolling with the arrows and space, and the
+    // right-click menu from opening over the game.
+    this.input.keyboard?.addCapture('UP,DOWN,LEFT,RIGHT,SPACE');
+    this.input.mouse?.disableContextMenu();
   }
 
   private pad(): Phaser.Input.Gamepad.Gamepad | undefined {
@@ -1341,9 +1322,8 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   private updateMovement(time: number): void {
-    const k = this.moveKeys;
-    let x = (k.right.isDown ? 1 : 0) - (k.left.isDown ? 1 : 0);
-    let y = (k.down.isDown ? 1 : 0) - (k.up.isDown ? 1 : 0);
+    let x = (keys.isDown('KeyD') ? 1 : 0) - (keys.isDown('KeyA') ? 1 : 0);
+    let y = (keys.isDown('KeyS') ? 1 : 0) - (keys.isDown('KeyW') ? 1 : 0);
     if (x === 0 && y === 0) {
       const t = this.hud()?.touch.moveVector();
       if (t) {
@@ -1371,8 +1351,15 @@ export default class PlayScene extends Phaser.Scene {
   }
 
   private shootDirection(): Dir4 | null {
-    const fromKeys = this.shootKeys.current();
-    if (fromKeys) return fromKeys;
+    const code = keys.last(SHOOT_KEYS);
+    if (code) return SHOOT_CODES[code];
+    // Left mouse button held: towards the cursor.
+    const mouse = this.input.mousePointer;
+    if (mouse?.leftButtonDown() && !mouse.wasTouch) {
+      const at = mouse.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+      const dir = stickToDir4(at.x - this.player.x, at.y - (this.player.y + 4));
+      if (dir) return dir;
+    }
     const fromTouch = this.hud()?.touch.shootDirection();
     if (fromTouch) return fromTouch;
     const pad = this.pad();
@@ -1446,7 +1433,6 @@ export default class PlayScene extends Phaser.Scene {
 
   private die(): void {
     this.dead = true;
-    this.shootKeys.clear();
     this.player.setVelocity(0, 0).setAlpha(1).clearTint();
     this.player.setFlipX(false);
     this.player.play('player-death');
