@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng, newSeedString, seedFromString } from '../src/rules/rng';
 import { BASE_STATS, STAT_FLOORS, computeStats, fireCooldownMs, shotLifetimeMs } from '../src/rules/stats';
-import { ShootKeys, moveVector, stickToDir4, touchSide, virtualStick } from '../src/rules/input';
+import { HeldKeys, moveVector, stickToDir4, touchSide, virtualStick } from '../src/rules/input';
 import { DOOR_CELLS, ROOM_COLS, ROOM_ROWS, allConnected, generateRoom } from '../src/rules/room';
 import { normalMapFromRgba } from '../src/rules/normalmap';
 import { frameView, pickQuality } from '../src/rules/view';
@@ -68,14 +68,19 @@ describe('input', () => {
   });
 
   it('fires toward the most recent shoot key still held', () => {
-    const keys = new ShootKeys();
-    keys.press('left');
-    keys.press('up');
-    expect(keys.current()).toBe('up');
-    keys.release('up');
-    expect(keys.current()).toBe('left');
-    keys.release('left');
-    expect(keys.current()).toBeNull();
+    const keys = new HeldKeys();
+    const arrows = ['ArrowLeft', 'ArrowUp'];
+    keys.down('ArrowLeft');
+    keys.down('KeyW');
+    keys.down('ArrowUp');
+    keys.down('ArrowLeft'); // a key repeat: still pressed first
+    expect(keys.last(arrows)).toBe('ArrowUp');
+    keys.up('ArrowUp');
+    expect(keys.last(arrows)).toBe('ArrowLeft');
+    expect(keys.isDown('KeyW')).toBe(true);
+    keys.clear();
+    expect(keys.last(arrows)).toBeNull();
+    expect(keys.isDown('KeyW')).toBe(false);
   });
 });
 

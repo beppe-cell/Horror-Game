@@ -279,7 +279,7 @@ export default class MenuScene extends Phaser.Scene {
     hint?.setText(
       touch
         ? 'Stick sinistro: muoviti  ·  stick destro: spara'
-        : 'WASD: muoviti  ·  frecce: spara  ·  P: pausa  ·  M: musica',
+        : 'WASD: muoviti  ·  frecce o mouse: spara  ·  P: pausa  ·  M: musica',
     );
   }
 
