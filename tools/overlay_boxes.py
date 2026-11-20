@@ -3,7 +3,7 @@
 overlay frame, so the game can scale each add-on piece and centre it on the
 right point of the astronaut.
 
-Usage: python3 -I tools/overlay_boxes.py public/sprites/items/overlay-*.png
+Usage: python3 -I tools/overlay_boxes.py public/sprites/items/overlay-*.png public/sprites/items/legs-*.png
 """
 import json
 import sys
@@ -17,8 +17,9 @@ for path in sys.argv[1:]:
     p = Path(path)
     img = np.asarray(Image.open(p).convert('RGBA'))
     h = img.shape[0]
+    # Leg pieces: 6 walk frames x 3 views; add-ons: 3 views x 4 rows.
     rows = 2 if p.stem == 'overlay-7' else 4
-    frames = 3 * rows
+    frames = 18 if p.stem.startswith('legs-') else 3 * rows
     w = img.shape[1] // frames
     boxes = []
     for i in range(frames):
