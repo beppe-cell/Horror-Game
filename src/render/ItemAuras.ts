@@ -44,17 +44,36 @@ const SLOTS = {
   helmet: { views: [[0, -12], [0, -12], [1, -12]], width: 15 },
   /** Over the shoulders and down the back, behind her when she faces the camera. */
   cloak: { views: [[0, 3], [0, 3], [-3, 3]], width: 22, back: true },
+  /** Across both shoulders. */
+  shoulders: { views: [[0, -6], [0, -6], [1, -6]], width: 20 },
+  /** The other hip. */
+  hipR: { views: [[-5, 6], [5, 6], [1, 6]], width: 6 },
+  /** Round the waist. */
+  belt: { views: [[0, 6], [0, 6], [1, 6]], width: 14 },
+  /** Floating over the helmet. */
+  aboveHead: { views: [[0, -27], [0, -27], [0, -27]], width: 6 },
 } satisfies Record<string, Slot>;
+
+interface Overlay {
+  sheet: number;
+  row: number;
+  slot: keyof typeof SLOTS;
+  width?: number;
+  /**
+   * One scale for the three views, from the largest of them, so a piece
+   * seen edge-on stays thin instead of being blown up to the slot size.
+   */
+  uniform?: boolean;
+}
 
 /**
  * Add-on art for each item: overlay sheet, row, and slot. Items left out
  * (their Gemini pieces came out unusable) show only their light effect.
  */
-const OVERLAYS: Partial<Record<ItemId, { sheet: number; row: number; slot: keyof typeof SLOTS; width?: number }>> = {
+const OVERLAYS: Partial<Record<ItemId, Overlay>> = {
   'plasma-core': { sheet: 1, row: 0, slot: 'back' },
   'rapid-capacitor': { sheet: 1, row: 1, slot: 'blaster', width: 6 },
   'extended-barrel': { sheet: 1, row: 2, slot: 'blaster', width: 12 },
-  'leg-servos': { sheet: 1, row: 3, slot: 'knees' },
   'captains-coin': { sheet: 2, row: 1, slot: 'neck' },
   'armor-plate': { sheet: 2, row: 2, slot: 'chest' },
   'shield-generator': { sheet: 2, row: 3, slot: 'shoulderL' },
@@ -62,7 +81,6 @@ const OVERLAYS: Partial<Record<ItemId, { sheet: number; row: number; slot: keyof
   'twin-emitter': { sheet: 3, row: 2, slot: 'blaster' },
   'overclock': { sheet: 4, row: 0, slot: 'gun' },
   'nano-repair': { sheet: 4, row: 1, slot: 'hip' },
-  'grav-boots': { sheet: 4, row: 2, slot: 'feet' },
   'dog-tag': { sheet: 4, row: 3, slot: 'neck' },
   'long-scope': { sheet: 5, row: 0, slot: 'gun' },
   'alien-heart': { sheet: 5, row: 1, slot: 'heart' },
@@ -95,7 +113,50 @@ const OVERLAYS: Partial<Record<ItemId, { sheet: number; row: number; slot: keyof
   'alien-eye': { sheet: 12, row: 1, slot: 'shoulderL', width: 6 },
   'red-serum': { sheet: 12, row: 2, slot: 'neck', width: 11 },
   'resin-shell': { sheet: 12, row: 3, slot: 'back', width: 14 },
+  // overlay-13 … overlay-19 = "Pezzi fermi" 6 … 12. The lens (36) and the
+  // laser sight (29) came out unusable and only show their light.
+  'steam-turbine': { sheet: 13, row: 0, slot: 'back', width: 10, uniform: true },
+  'pirate-chip': { sheet: 13, row: 1, slot: 'shoulderR', width: 4, uniform: true },
+  'hydraulic-piston': { sheet: 13, row: 2, slot: 'shoulderL', width: 8, uniform: true },
+  'pulsing-egg': { sheet: 13, row: 3, slot: 'hip', width: 7, uniform: true },
+  'jetpack': { sheet: 14, row: 0, slot: 'back', width: 16, uniform: true },
+  'broken-coolant': { sheet: 14, row: 1, slot: 'back', width: 14, uniform: true },
+  'first-aid-kit': { sheet: 14, row: 2, slot: 'hip', width: 7, uniform: true },
+  'quartz-crystal': { sheet: 15, row: 0, slot: 'heart', width: 7, uniform: true },
+  'cooling-fan': { sheet: 15, row: 1, slot: 'chest', width: 6, uniform: true },
+  'alien-clover': { sheet: 15, row: 2, slot: 'shoulders', uniform: true },
+  'titanium-plate': { sheet: 15, row: 3, slot: 'chest', width: 14, uniform: true },
+  'elastic-rounds': { sheet: 16, row: 0, slot: 'chest', width: 14, uniform: true },
+  'plasma-cell': { sheet: 16, row: 2, slot: 'back', width: 9, uniform: true },
+  'radar-antenna': { sheet: 16, row: 3, slot: 'shoulderL', width: 16, uniform: true },
+  'emergency-charge': { sheet: 17, row: 0, slot: 'back', width: 11, uniform: true },
+  'ship-medal': { sheet: 17, row: 1, slot: 'neck', width: 5, uniform: true },
+  'stabilizer': { sheet: 17, row: 2, slot: 'chest', width: 6, uniform: true },
+  'star-fragment': { sheet: 17, row: 3, slot: 'aboveHead', uniform: true },
+  'flesh-doll': { sheet: 18, row: 0, slot: 'hip', width: 10, uniform: true },
+  'black-mirror': { sheet: 18, row: 1, slot: 'hipR', width: 8, uniform: true },
+  'rusty-chain': { sheet: 18, row: 2, slot: 'belt', uniform: true },
+  'blind-eye': { sheet: 18, row: 3, slot: 'shoulderR', width: 5, uniform: true },
+  'whispering-skull': { sheet: 19, row: 0, slot: 'shoulderL', width: 6, uniform: true },
+  'thorn': { sheet: 19, row: 1, slot: 'chest', width: 12, uniform: true },
+  'black-dust': { sheet: 19, row: 2, slot: 'hip', width: 6, uniform: true },
+  'abyss-idol': { sheet: 19, row: 3, slot: 'chest', width: 8, uniform: true },
 };
+
+/**
+ * Leg pieces, animated with the walk: each sheet has the 6 walk frames for
+ * the front, back and side views (rows), drawn at the feet. They are scaled
+ * from the front view (`width` = both legs) and stand on her soles, so they move step by step with her.
+ */
+const LEGS: Partial<Record<ItemId, { key: string; width: number }>> = {
+  'leg-servos': { key: 'legs-servos', width: 15 },
+  'grav-boots': { key: 'legs-grav', width: 17 },
+  'lead-boots': { key: 'legs-lead', width: 17 },
+  'compression-spring': { key: 'legs-spring', width: 15 },
+};
+/** Her soles, below the sprite centre. */
+const SOLES_Y = 22;
+const WALK_FRAMES = 6;
 
 /** A piece of art worn by the astronaut, picked by the way she faces. */
 interface Piece {
@@ -103,6 +164,9 @@ interface Piece {
   row: number;
   slot: Slot;
   width: number;
+  uniform?: boolean;
+  /** Animated leg piece (LEGS). */
+  legs?: boolean;
   img: Phaser.GameObjects.Image;
 }
 
@@ -148,7 +212,13 @@ export class ItemAuras {
       if (!o || !key || !this.scene.textures.exists(key)) continue;
       const slot: Slot = SLOTS[o.slot];
       const img = this.scene.add.image(0, 0, key, o.row * 3).setLighting(true);
-      this.pieces.push({ key, row: o.row, slot, width: o.width ?? slot.width, img });
+      this.pieces.push({ key, row: o.row, slot, width: o.width ?? slot.width, uniform: o.uniform, img });
+    }
+    for (const id of items) {
+      const l = LEGS[id];
+      if (!l || !this.scene.textures.exists(l.key)) continue;
+      const img = this.scene.add.image(0, 0, l.key, 0).setLighting(true);
+      this.pieces.push({ key: l.key, row: 0, slot: SLOTS.feet, width: l.width, legs: true, img });
     }
     const count: Record<string, number> = {};
     for (const id of items) {
@@ -224,6 +294,10 @@ export class ItemAuras {
     const view = facing === 'down' ? 0 : facing === 'up' ? 1 : 2;
     const mirror = facing === 'left' ? -1 : 1;
     for (const piece of this.pieces) {
+      if (piece.legs) {
+        this.placeLegs(piece, view, mirror);
+        continue;
+      }
       const off = piece.slot.views[view];
       const frame = piece.row * 3 + view;
       const box = OVERLAY_BOXES[piece.key]?.boxes[frame];
@@ -233,7 +307,7 @@ export class ItemAuras {
       }
       const sheet = OVERLAY_BOXES[piece.key];
       // Scaled on its longest side, so a long thin piece seen end-on is not blown up.
-      const scale = piece.width / Math.max(4, box[2] - box[0], box[3] - box[1]);
+      const scale = piece.width / (piece.uniform ? rowSize(piece.key, piece.row * 3, 3) : Math.max(4, box[2] - box[0], box[3] - box[1]));
       piece.img
         .setVisible(true)
         .setFrame(frame)
@@ -247,6 +321,38 @@ export class ItemAuras {
       const behind = (piece.slot.back && view !== 1) || (piece.slot.front && view === 1);
       piece.img.setDepth(p.depth + (behind ? -0.004 : 0.004));
     }
+  }
+
+  /**
+   * A leg piece: the walk frame she is on (standing still: the first), for
+   * the view she is seen from, standing on her soles.
+   */
+  private placeLegs(piece: Piece, view: number, mirror: number): void {
+    const p = this.player;
+    const sheet = OVERLAY_BOXES[piece.key];
+    const walking = p.texture.key === 'player-walk';
+    const step = walking ? Number(p.frame.name) % WALK_FRAMES : 0;
+    const first = view * WALK_FRAMES;
+    const box = sheet?.boxes[first + step];
+    if (!sheet || !box || !p.visible) {
+      piece.img.setVisible(false);
+      return;
+    }
+    const boxes = sheet.boxes.slice(first, first + WALK_FRAMES).filter((b): b is [number, number, number, number] => !!b);
+    // One anchor per view (the middle of the steps, the lowest sole), so the
+    // legs keep their own motion inside the frame.
+    const cx = boxes.reduce((t, b) => t + (b[0] + b[2]) / 2, 0) / boxes.length;
+    const bottom = Math.max(...boxes.map((b) => b[3]));
+    piece.img
+      .setVisible(true)
+      .setFrame(first + step)
+      .setOrigin(cx / sheet.w, bottom / sheet.h)
+      // One scale for every view, from the front one (both legs side by side).
+      .setScale(piece.width / rowSize(piece.key, 0, WALK_FRAMES, true))
+      .setFlipX(mirror < 0)
+      .setPosition(p.x, p.y + SOLES_Y)
+      .setAlpha(p.alpha)
+      .setDepth(p.depth + 0.003);
   }
 
   /** Moves every effect with the astronaut; `moving` turns the feet trails on. */
@@ -305,4 +411,16 @@ export class ItemAuras {
       }
     }
   }
+}
+
+/**
+ * Size of the largest piece among `count` frames from `first`: the longest
+ * side, or only the width (`widthOnly`, for legs, which are tall).
+ */
+function rowSize(key: string, first: number, count: number, widthOnly = false): number {
+  let size = 4;
+  for (const b of OVERLAY_BOXES[key]?.boxes.slice(first, first + count) ?? []) {
+    if (b) size = Math.max(size, b[2] - b[0], widthOnly ? 0 : b[3] - b[1]);
+  }
+  return size;
 }
